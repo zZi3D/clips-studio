@@ -55,6 +55,7 @@ class JobIn(BaseModel):
     podcast: bool | None = None   # multi-cam podcast: letterbox, no subject tracking
     vertical_live: bool | None = None  # an already-composed 9:16 live: keep its layout, no face tracking
     gaming: bool | None = None  # Gaming / Split-Screen: webcam over the game, or the game alone
+    compilation: bool | None = None  # Compilation Mode: cut-bounded action framing, no clip cap
     gaming_scoring: bool | None = None  # score as a gaming stream (with Vertical Live etc.)
     gaming_layout: dict | None = None  # the split set up before processing (gaming/run.py keys)
     gaming_remember: bool | None = None  # ...also kept for this creator's next videos
@@ -234,6 +235,7 @@ class LocalVideoIn(BaseModel):
     podcast: bool | None = None  # multi-cam podcast: letterbox, no subject tracking
     vertical_live: bool | None = None  # an already-composed 9:16 live: keep its layout, no face tracking
     gaming: bool | None = None  # Gaming / Split-Screen: webcam over the game, or the game alone
+    compilation: bool | None = None  # Compilation Mode: cut-bounded action framing, no clip cap
     gaming_scoring: bool | None = None  # score as a gaming stream (with Vertical Live etc.)
     gaming_layout: dict | None = None  # the split set up before processing (gaming/run.py keys)
     gaming_remember: bool | None = None  # ...also kept for this creator's next videos
@@ -501,6 +503,8 @@ def _process_options(body, into: dict | None = None, data_dir: Path | None = Non
         payload["vertical_live"] = True
     if getattr(body, "gaming", None):
         payload["gaming"] = True
+    if getattr(body, "compilation", None):
+        payload["compilation"] = True
     if getattr(body, "gaming_scoring", None):
         # Score as a gaming stream (analysis/gaming.py) with whatever layout
         # the video gets, e.g. an already-vertical live of a game.

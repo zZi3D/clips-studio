@@ -496,6 +496,9 @@ export interface JobOptions {
   /** Gaming / Reaction: the streamer's webcam over the game or the video being
    *  reacted to (gaming/). Not combined with vertical_live, podcast or longform. */
   gaming?: boolean
+  /** Compilation Mode: extract each action highlight without hard clip caps,
+   *  bounded by scene cuts and post-climax seconds. */
+  compilation?: boolean
   /** Score as a gaming stream (analysis/gaming.py): in-game moments and the
    *  reactions to them count, even with little said. Offered with Vertical
    *  Live; Gaming / Reaction always scores this way. */

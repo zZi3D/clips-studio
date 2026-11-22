@@ -34,12 +34,19 @@ export function installBrowserShim(): void {
       return null
     },
     pickVideoFile: async () => {
-      unavailable('Choosing a video file')
-      return null
+      const chosen = window.prompt(
+        'Browser-modus: Voer het bestandspad naar je video in:\n(In de desktopversie van Clips Kitty opent dit automatisch Windows Verkenner)',
+        'C:\\Projects\\GTA 6\\GTA 6 WTF and Funny Moments! #1.mp4'
+      )
+      return chosen ? chosen.trim().replace(/^["']|["']$/g, '') : null
     },
     pickVideoFiles: async () => {
-      unavailable('Choosing video files')
-      return []
+      const chosen = window.prompt(
+        'Browser-modus: Voer het bestandspad naar je video in:\n(In de desktopversie van Clips Kitty opent dit automatisch Windows Verkenner)',
+        'C:\\Projects\\GTA 6\\GTA 6 WTF and Funny Moments! #1.mp4'
+      )
+      if (!chosen || !chosen.trim()) return []
+      return [chosen.trim().replace(/^["']|["']$/g, '')]
     },
     pickThumbnailImage: async () => null,
     // No warning: this one is polled speculatively after a signup link is
@@ -48,15 +55,18 @@ export function installBrowserShim(): void {
     // which is the same thing an empty clipboard means.
     readClipboardKey: async () => '',
     pickImageFile: async () => {
-      unavailable('Choosing an image')
-      return null
+      const chosen = window.prompt('Browser-modus: Voer het pad naar de afbeelding in:')
+      return chosen ? chosen.trim().replace(/^["']|["']$/g, '') : null
     },
     pickFolder: async () => {
-      unavailable('Choosing a folder')
-      return null
+      const chosen = window.prompt(
+        'Browser-modus: Voer het export-mappad in:\n(In de desktopversie van Clips Kitty opent dit Windows Verkenner)',
+        'C:\\Users\\Zahied\\Downloads'
+      )
+      return chosen ? chosen.trim().replace(/^["']|["']$/g, '') : null
     },
-    // Somewhere plausible, so export flows can be walked through end to end.
-    getDownloadsPath: async () => '/downloads',
+    // Plausible Windows downloads path so export flows can be walked through end to end.
+    getDownloadsPath: async () => 'C:\\Users\\Zahied\\Downloads',
     openDonateWindow: async () => {
       window.open('https://paypal.me/clipsstudio', '_blank', 'noopener')
     },

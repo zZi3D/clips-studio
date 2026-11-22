@@ -69,6 +69,7 @@ type ToggleKey =
   | 'podcast'
   | 'vertical_live'
   | 'gaming'
+  | 'compilation'
   | 'sport'
   | 'longform'
   | 'pipeline'
@@ -117,6 +118,13 @@ const TOGGLES: { key: ToggleKey; label: string; hint: string; title: string }[] 
     hint: '(split-screen)',
     title:
       'For game streams and reaction videos: the streamer’s webcam in the top half, the game (or the video they’re reacting to) in the bottom half. With no webcam, the game fills the screen. The streamer is whoever is talking, never the biggest face. Fix a clip in the editor by drawing the webcam and game area.'
+  },
+  {
+    key: 'compilation',
+    label: 'Compilation',
+    hint: '(highlights/fails)',
+    title:
+      'For compilation videos (funny moments, GTA fails, stunt reels, glitch clips). Clips every qualifying action highlight without an arbitrary limit, cuts cleanly on scene transitions, and preserves the full climax and aftermath.'
   },
   {
     key: 'sport',
@@ -181,6 +189,7 @@ const PREF = {
   vertical_live: 'generate-vertical-live',
   gaming: 'generate-gaming',
   gaming_scoring: 'generate-gaming-scoring',
+  compilation: 'generate-compilation',
   sport: 'generate-sport',
   longform: 'generate-longform',
   longform_mode: 'generate-longform-mode',
@@ -290,6 +299,7 @@ function remember(key: ToggleKey, on: boolean, mode?: string): void {
     else if (key === 'podcast') localStorage.setItem(PREF.podcast, String(on))
     else if (key === 'vertical_live') localStorage.setItem(PREF.vertical_live, String(on))
     else if (key === 'gaming') localStorage.setItem(PREF.gaming, String(on))
+    else if (key === 'compilation') localStorage.setItem(PREF.compilation, String(on))
     else if (key === 'sport') localStorage.setItem(PREF.sport, String(on))
     else if (key === 'edit' && !on) localStorage.removeItem(PREF.edit) // on, rememberEdit keeps the list
     else if (key === 'longform') {
@@ -331,6 +341,9 @@ export function seedOptions(): JobOptions {
   // Gaming / Reaction likewise, and the older modes win over it.
   if (localStorage.getItem(PREF.gaming) === 'true' && !o.podcast && !o.longform && !o.vertical_live) {
     o.gaming = true
+  }
+  if (localStorage.getItem(PREF.compilation) === 'true') {
+    o.compilation = true
   }
   // Sports too: Podcast and Gaming each score the video their own way, and
   // win over it.
@@ -662,6 +675,9 @@ export default function AddVideos({ onAdded }: { onAdded?: () => void }): JSX.El
         delete next.gaming_layout
         delete next.gaming_remember
       }
+    } else if (key === 'compilation') {
+      if (on) next.compilation = true
+      else delete next.compilation
     } else if (key === 'sport') {
       const start = on ? (next.sport ?? startingSport(offered)) : null
       if (start) {
@@ -832,6 +848,7 @@ export default function AddVideos({ onAdded }: { onAdded?: () => void }): JSX.El
     if (key === 'podcast') return Boolean(o.podcast)
     if (key === 'vertical_live') return Boolean(o.vertical_live)
     if (key === 'gaming') return Boolean(o.gaming)
+    if (key === 'compilation') return Boolean(o.compilation)
     if (key === 'sport') return Boolean(o.sport)
     if (key === 'longform') return Boolean(o.longform)
     if (key === 'pipeline') return Boolean(o.pipeline)

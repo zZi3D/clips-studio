@@ -12,6 +12,23 @@ fixed were often broken in a way that only showed up on somebody else's machine.
 
 ### Added
 
+- **Visual Frame Analysis (Ollama Vision Integration).**
+  - Clips Kitty now supports automatic visual frame analysis and captioning powered by local Ollama vision models (such as `qwen3.5`, `qwen3-vl`, or fallback `gemma4:e4b`).
+  - Samples video frames on hard scene cuts (`cuts_raw`) and visual activity peaks (`visual_raw`), plus a configurable time interval (default 3.0s), up to `max_frames` (default 120) to keep processing fast.
+  - Automatically filters mundane frames by instructing the vision model to detect funny, chaotic, crash, explosion, glitch, ragdoll, or stunt gameplay events, strictly ignoring non-action ("NORMAL") responses.
+  - Integrates `VISUAL:` events into candidate scoring so high-action and visual comedy moments receive high clip scores even without voice or audio spikes.
+
+- **Compilation Mode.**
+  - New dedicated mode designed specifically for compilation videos, montages, and highlight reels containing multiple distinct clips or gags of any duration (from 4 to 100+ moments).
+  - **Dashboard & UI Toggle:** Added a `Compilation` checkbox next to `Podcast` and `Gaming / Reaction` on the Add Videos card and in individual queue item settings.
+  - **Coherent Highlight Bundling (`merge_gap_seconds: 18.0s`):** Automatically merges consecutive visual and audio action moments occurring within 18 seconds of each other into continuous, cohesive compilation segments (targeted between `min_duration: 25.0s` and `max_duration: 90.0s`) instead of creating fragmented micro-clips. A new clip only begins after >18 seconds of quiet gameplay.
+  - **Generous Action Margins & Safe Follow-Through:** Starts each clip at least 4.5 seconds (`pre_climax_seconds: 4.5s`) before the first action highlight in the bundle, and lets it run at least 6.5 seconds (`post_climax_seconds: 6.5s`) after the final highlight so gags, explosions, and reactions are never cut off prematurely. Aggressive mid-clip scene-cut snapping has been removed to prevent false cutoffs from action flashes or rapid camera pans.
+  - **Unlimited Clips & Flexible Thresholds:** Configured under `compilation_mode` with `max_clips: 0` (no arbitrary cap) and a lower scoring threshold offset (`min_score_offset: -20`) so high-energy moments are preserved. Overlap filtering is relaxed for visual events so distinct non-speech moments are not discarded.
+
+- **Python 3.11 Environment & Runtime Setup.**
+  - Initialized dedicated local `.venv` using Python 3.11 with fully compatible wheels for faster-whisper, PyTorch CUDA 12, OpenCV, and RapidOCR/ONNX runtime.
+  - Automated launcher scripts to run both the FastAPI backend and Electron desktop UI seamlessly.
+
 - **Optional Clip updates.** App-wide Approve/Deny cards, private Discord
   updates and an Away from desk approval gate, with local-model wording and
   plain-text fallback. Includes a configurable attorney joke popup. Off by default.
@@ -85,6 +102,18 @@ Kitty after you change it.
   mouth most), follows a new speaker in a long shot, and snaps on every camera cut.
 
 ### Fixed
+
+- **Web Browser UI Mode: Layout Frame Previews & CSP (`ui/vite.config.mts`).**
+  - Resolved "Couldn't read a frame" error in browser mode (`http://localhost:5173/`). Vite dev server's Content-Security-Policy (CSP) rewrite now explicitly allows `img-src 'self' data: blob: http://127.0.0.1:8765;`, allowing source video frame previews to load reliably into the layout editor.
+
+- **Web Browser UI Mode: File and Folder Selection (`ui/src/renderer/src/lib/browserShim.ts`).**
+  - Fixed "Upload video file" and "Browse..." (Export location) buttons silently doing nothing in browser mode by providing interactive path prompts with smart pre-filled defaults, and set the default export directory to Windows Downloads.
+
+- **NVIDIA RTX 50-Series (Blackwell / sm_120) CUDA Support.**
+  - Installed PyTorch CUDA 13.0 (`torch==2.14.1+cu130`), resolving the "no CUDA GPU detected / running on CPU" warning and enabling full GPU-accelerated inference on the NVIDIA GeForce RTX 5060 Ti.
+
+- **Preflight Whisper Weights Detection.**
+  - Linked pre-cached `large-v3-turbo` and `small` model weights into `vendor/whisper/`, satisfying preflight checks with a green checkmark without requiring re-downloading.
 
 - **Clips are made again with FFmpeg 9, and a run whose clips all fail now says so** (#281).
   FFmpeg 9 dropped a setting Clips Kitty used on every clip, so on a PC running Clips Kitty

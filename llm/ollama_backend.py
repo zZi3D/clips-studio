@@ -84,7 +84,7 @@ class OllamaBackend(LLMBackend):
         """Gemma 3 and Gemma 4 can (Ollama says "vision"); gemma:7b can't."""
         return "vision" in self._capabilities()
 
-    def look(self, prompt: str, images: list[bytes]) -> str:
+    def look(self, prompt: str, images: list[bytes], *, json_mode: bool | None = None) -> str:
         """The frames go to the local model with the prompt: nothing leaves
         the PC."""
         payload = {
@@ -92,9 +92,10 @@ class OllamaBackend(LLMBackend):
             "prompt": prompt,
             "images": [base64.b64encode(img).decode("ascii") for img in images],
             "stream": False,
-            "format": "json",
             "options": {"temperature": 0.2, "num_ctx": self.num_ctx, "num_predict": 512},
         }
+        if json_mode is True or (json_mode is None and "json" in prompt.lower()):
+            payload["format"] = "json"
         # Gemma 4 can think, and a thinking model in JSON mode answers
         # nothing at all (see _limit_reasoning); this question doesn't need it.
         if "thinking" in self._capabilities():

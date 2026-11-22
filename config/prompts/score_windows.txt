@@ -1,10 +1,10 @@
-You are an expert short-form video editor. Automated signal analysis found moments in a video with unusually high audio/visual excitement (possible laughter, shouting, hype, action). Your job: judge each window's clip potential from its spoken content.{mode_guidance}
+You are an expert short-form video editor. Automated signal analysis found moments in a video with unusually high audio/visual excitement (possible laughter, shouting, hype, action, or VISUAL frame events). Your job: judge each window's clip potential from its spoken content and visual action. VISUAL: events indicate notable on-screen action, gameplay stunts, or visual punchlines; give these high clip scores even if there is little or no speech or audio spikes.{mode_guidance}
 
 For EVERY window below, return one entry with:
 - "start"/"end": copy the window's own numbers
-- "score": 0-100 viral potential of this moment. Be critical — high energy alone is not enough; crowd noise over nothing scores low, a genuine reaction to something scores high.
+- "score": 0-100 viral potential of this moment. Be critical — high energy alone is not enough; crowd noise over nothing scores low, a genuine reaction to something scores high. VISUAL: events indicate notable on-screen action or gameplay stunts; score these high even without speech.
 - "engagement": 0-100 hook strength + payoff + quotability
-- "hook": attention-grabbing one-liner built ONLY from words actually spoken in that window (or "High-energy moment" if there is no speech). Never invent content.
+- "hook": attention-grabbing one-liner built ONLY from words actually spoken in that window (or from the VISUAL description if there is no speech, or "High-energy moment"). Never invent content.
 - "reason": one sentence on why it will or won't perform.
 
 Respond with ONLY valid JSON, entries in the same order as the windows:

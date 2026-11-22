@@ -64,6 +64,7 @@ export default function QueueItemSettings({
   const [verticalLive, setVerticalLive] = useState(Boolean(s.vertical_live))
   const [gamingScoring, setGamingScoring] = useState(Boolean(s.gaming_scoring))
   const [gaming, setGaming] = useState(Boolean(s.gaming))
+  const [compilation, setCompilation] = useState(Boolean(s.compilation))
   const [sport, setSport] = useState<SportOption | null>(s.sport ?? null)
   const sports = useSports() ?? []
   const [longform, setLongform] = useState(Boolean(s.longform))
@@ -113,6 +114,8 @@ export default function QueueItemSettings({
       else clear.push('gaming_scoring')
       if (gaming) patch.gaming = true
       else clear.push('gaming', 'gaming_layout', 'gaming_remember')
+      if (compilation) patch.compilation = true
+      else clear.push('compilation')
       if (sport) patch.sport = sport
       else clear.push('sport')
       if (longform) patch.longform = { mode: longformMode, ...(longformShorts ? { shorts: true } : {}) }
@@ -294,6 +297,15 @@ export default function QueueItemSettings({
             }
           },
           'Game streams and reaction videos: the streamer’s webcam in the top half, the game or the video they’re reacting to in the bottom half. With no webcam, the game fills the screen.'
+        )}
+        {toggle(
+          'Compilation',
+          '(highlights/fails)',
+          compilation,
+          (on) => {
+            setCompilation(on)
+          },
+          'For compilation videos: clips every qualifying action highlight without an arbitrary limit, cuts cleanly on scene transitions, and preserves the full climax and aftermath.'
         )}
         {(sports.length > 0 || sport) &&
           toggle(

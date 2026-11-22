@@ -223,6 +223,8 @@ class Worker(threading.Thread):
                             cfg["clips"]["gaming_layout"] = payload["gaming_layout"]
                         if payload.get("gaming_remember"):
                             cfg["clips"]["gaming_remember"] = True
+                    if payload.get("compilation"):
+                        cfg["clips"]["compilation"] = True
                     if "captions" in payload:
                         cfg["clips"]["captions"] = bool(payload["captions"])
                     if payload.get("min_score") is not None:

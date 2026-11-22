@@ -52,6 +52,19 @@ def is_vertical_live(config_or_opts: dict | None) -> bool:
     return bool(isinstance(clips, dict) and clips.get("vertical_live"))
 
 
+def is_compilation(config_or_opts: dict | None) -> bool:
+    """Compilation Mode: optimized for compilation videos (fails, stunts,
+    glitches, highlight reels). Extracts individual action moments without
+    hard clip count caps, aligns start to the nearest scene cut before the
+    action, and extends end 4-7s after climax bounded by the next scene cut."""
+    if not config_or_opts:
+        return False
+    if config_or_opts.get("compilation") or config_or_opts.get("compilation_mode"):
+        return True
+    clips = config_or_opts.get("clips")
+    return bool(isinstance(clips, dict) and (clips.get("compilation") or clips.get("compilation_mode")))
+
+
 def is_gaming(config_or_opts: dict | None) -> bool:
     """Gaming / Split-Screen (the gaming/ package, docs/GAMING.md): the
     streamer's webcam over the game in a split, or the game filling the

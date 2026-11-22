@@ -74,6 +74,33 @@ def find_clips(
         "weights",
         {"text": 0.30, "visual": 0.20, "reaction": 0.20, "audio": 0.20, "engagement": 0.10},
     )
+
+    from core import modes
+    compilation = modes.is_compilation(config)
+    compilation_cfg = config.get("compilation_mode", {}) if compilation else {}
+    if compilation:
+        clips_cfg = dict(clips_cfg)
+        if "min_duration" in compilation_cfg:
+            clips_cfg["min_duration"] = float(compilation_cfg["min_duration"])
+        if "max_duration" in compilation_cfg:
+            clips_cfg["max_duration"] = float(compilation_cfg["max_duration"])
+        if "max_clips" in compilation_cfg:
+            clips_cfg["max_clips_per_video"] = int(compilation_cfg["max_clips"])
+        offset = float(compilation_cfg.get("min_score_offset", -20))
+        clips_cfg["min_score"] = max(0, int(clips_cfg.get("min_score", 55) + offset))
+        merge_gap = float(compilation_cfg.get("merge_gap_seconds", 18.0))
+        pre_climax = float(compilation_cfg.get("pre_climax_seconds", 4.5))
+        post_climax = float(compilation_cfg.get("post_climax_seconds", 6.5))
+        if compilation_cfg.get("visual_analysis", True):
+            vis_cfg = dict(config.get("visual_analysis", {}))
+            vis_cfg["enabled"] = True
+            config = {**config, "visual_analysis": vis_cfg}
+        print(f"  Compilation Mode active: bundled action framing ({merge_gap:.0f}s gap), "
+              f"margins (-{pre_climax:.1f}s / +{post_climax:.1f}s), min_score={clips_cfg['min_score']}")
+    else:
+        merge_gap = 18.0
+        pre_climax = 4.5
+        post_climax = 6.5
     if sport is not None and gaming is None:
         # A match answers what the gaming path asks (sports/core/profile.py),
         # so its proven evidence (the voice jump, the crowd and whistle,
@@ -113,7 +140,29 @@ def find_clips(
     visual_activity = _combine([_pct(visual_raw[k]) for k in ("motion", "scene_cut", "flash") if k in visual_raw])
     combined = _combine([a for a in (audio_excitement, visual_activity) if a.size])
 
-    events = _build_events(audio_excitement, visual_activity, visual_raw)
+    cut_times = visual_raw.get("cut_times")
+    if cut_times is None:
+        scene_cut = visual_raw.get("scene_cut", np.zeros(0))
+        cut_times = [float(s) for s, count in enumerate(scene_cut) if count > 0]
+    cut_times = sorted(cut_times)
+
+    visual_captions = []
+    vis_cfg = config.get("visual_analysis", {})
+    if vis_cfg.get("enabled", True):
+        try:
+            from analysis.visual_captioning import describe_visual_events
+
+            visual_captions = describe_visual_events(
+                video_path,
+                visual_raw=visual_raw,
+                llm=llm,
+                config=vis_cfg,
+                full_config=config,
+            )
+        except Exception as e:
+            print(f"  (visual frame analysis skipped: {e})")
+
+    events = _build_events(audio_excitement, visual_activity, visual_raw, visual_captions=visual_captions)
     if events:
         print(f"  {len(events)} notable audio/visual events detected")
 
@@ -224,6 +273,45 @@ def find_clips(
         ):
             peak_windows.append(win)
             seen.append(ClipCandidate(start=win[0], end=win[1], score=0))
+    end_of_video = max(segments[-1].end if segments else 0.0,
+                       float(audio_excitement.size if audio_excitement.size else visual_activity.size))
+
+    compilation_cands: list[ClipCandidate] = []
+    if compilation and events:
+        bundled = bundle_compilation_highlights(
+            events,
+            min_duration=clips_cfg["min_duration"],
+            max_duration=clips_cfg["max_duration"],
+            merge_gap_seconds=merge_gap,
+            pre_climax_seconds=pre_climax,
+            post_climax_seconds=post_climax,
+            video_end=end_of_video,
+        )
+        for w_start, w_end, cluster in bundled:
+            if any(abs(c.start - w_start) < 1.0 and abs(c.end - w_end) < 1.0 for c in compilation_cands):
+                continue
+            visual_descs = [d.replace("VISUAL: ", "").strip() for _, d in cluster if d.startswith("VISUAL:")]
+            if visual_descs:
+                hook = visual_descs[0]
+                summary = "; ".join(visual_descs[:3])
+            else:
+                hook = cluster[0][1]
+                summary = cluster[0][1]
+            score = min(95, 82 + len(cluster) * 2)
+            compilation_cands.append(
+                ClipCandidate(
+                    start=w_start,
+                    end=w_end,
+                    score=score,
+                    engagement=score,
+                    hook=hook,
+                    reason=f"Compilation action ({len(cluster)} events): {summary}",
+                    source="compilation",
+                )
+            )
+        if compilation_cands:
+            print(f"  Compilation Mode: bundled {len(compilation_cands)} coherent action segment(s) from {len(events)} events")
+
     if peak_windows:
         print(f"  {len(peak_windows)} signal-peak window(s) found beyond transcript picks "
               f"(per-modality: visual/audio/combined)")
@@ -236,9 +324,7 @@ def find_clips(
                if gaming is not None else {}),
             **highlights.window_options(selection),
         )
-        # Signal peaks are seeded tight around the hot moment — grow them to a
-        # full ~25s clip on sentence boundaries so action moments aren't tiny.
-        if gaming is None:
+        if gaming is None and not compilation:
             signal_cands = [
                 highlights._fit_to_segments(
                     c, segments, clips_cfg["min_duration"], clips_cfg["max_duration"], target_duration=25.0,
@@ -246,18 +332,43 @@ def find_clips(
                 )
                 for c in signal_cands
             ]
+        elif compilation:
+            reframed = []
+            for c in signal_cands:
+                w_s, w_e = frame_compilation_window(
+                    c.start, c.end,
+                    min_duration=clips_cfg["min_duration"],
+                    max_duration=clips_cfg["max_duration"],
+                    pre_climax_seconds=pre_climax,
+                    post_climax_seconds=post_climax,
+                    video_end=end_of_video,
+                )
+                c.start = w_s
+                c.end = w_e
+                reframed.append(c)
+            signal_cands = reframed
         else:
-            # One game moment makes a 15-35 s clip that starts before the play.
-            # Snapping to sentences would move it to wherever the streamer
-            # next spoke (often after the play), so it is only extended to
-            # finish a line it would cut off.
-            end_of_video = max(segments[-1].end if segments else 0.0, float(audio_excitement.size))
             signal_cands = [
                 _frame_game_window(c, segments, clips_cfg["min_duration"], clips_cfg["max_duration"],
                                    end_of_video)
                 for c in signal_cands
             ]
         candidates += signal_cands
+
+    if compilation:
+        candidates = compilation_cands + candidates
+        # Reframe any remaining transcript candidates to compilation margins
+        for c in candidates:
+            if c.source != "compilation":
+                w_s, w_e = frame_compilation_window(
+                    c.start, c.end,
+                    min_duration=clips_cfg["min_duration"],
+                    max_duration=clips_cfg["max_duration"],
+                    pre_climax_seconds=pre_climax,
+                    post_climax_seconds=post_climax,
+                    video_end=end_of_video,
+                )
+                c.start, c.end = w_s, w_e
 
     # ---- 2b. what the person asked for (analysis/intent.py) ---------------
     # Windows where an asked-for topic is said, or inside an asked-for range,
@@ -582,6 +693,10 @@ def find_clips(
             a, b = sport_attached.get(id(c)), sport_attached.get(id(k))
             return (a is not None and b is not None and a.confirmed and b.confirmed
                     and not a.is_replay and not b.is_replay and a.group != b.group)
+    distinct_fn = two_plays
+    if compilation:
+        distinct_fn = lambda c, k: c.overlap_ratio(k) < 0.40
+
     finalists, rejections = highlights._select_unique(
         candidates, segments,
         min_score=clips_cfg["min_score"],
@@ -590,7 +705,7 @@ def find_clips(
         max_text_similarity=analysis_cfg["max_text_similarity"],
         max_segment_reuse=analysis_cfg["max_segment_reuse"],
         **({"priority": first} if first is not None else {}),
-        **({"distinct": two_plays} if two_plays is not None else {}),
+        **({"distinct": distinct_fn} if distinct_fn is not None else {}),
     )
     rejections += [Rejection(c, reason) for c, reason in sport_dropped]
 
@@ -919,6 +1034,115 @@ def _read_screen(video_path, game_curve: np.ndarray, segments: list[Segment], cl
     return screen
 
 
+def bundle_compilation_highlights(
+    events: list[tuple[float, str]],
+    min_duration: float = 25.0,
+    max_duration: float = 90.0,
+    merge_gap_seconds: float = 18.0,
+    pre_climax_seconds: float = 4.5,
+    post_climax_seconds: float = 6.5,
+    video_end: float = 999999.0,
+) -> list[tuple[float, float, list[tuple[float, str]]]]:
+    """Bundle consecutive visual/audio highlights within merge_gap_seconds into coherent compilation windows.
+
+    - Consecutive highlights with gap <= merge_gap_seconds (default 18.0s) are merged into one continuous clip.
+    - Only starts a new clip when there is more than merge_gap_seconds of calm gameplay between actions.
+    - Each clip starts at least pre_climax_seconds (default 4.5s) before the first highlight in the bundle.
+    - Each clip ends at least post_climax_seconds (default 6.5s) after the last highlight in the bundle.
+    - Length bounded between min_duration (25.0s) and max_duration (90.0s).
+    - Returns a list of (start_time, end_time, cluster_events).
+    """
+    action_events = [
+        (float(sec), desc) for sec, desc in events
+        if (
+            desc.startswith("VISUAL:")
+            or "AUDIO spike" in desc
+            or "laughter" in desc
+            or "cheering" in desc
+            or "shouting" in desc
+            or "GAME SOUND" in desc
+            or "STREAMER" in desc
+            or "high visual activity" in desc
+        )
+    ]
+    if not action_events:
+        return []
+
+    action_events.sort(key=lambda ev: ev[0])
+
+    clusters: list[list[tuple[float, str]]] = []
+    for sec, desc in action_events:
+        if not clusters:
+            clusters.append([(sec, desc)])
+            continue
+        prev_sec = clusters[-1][-1][0]
+        first_sec = clusters[-1][0][0]
+        gap = sec - prev_sec
+
+        potential_start = max(0.0, first_sec - pre_climax_seconds)
+        potential_end = min(video_end, sec + post_climax_seconds)
+        potential_duration = potential_end - potential_start
+
+        if gap <= merge_gap_seconds and potential_duration <= max_duration:
+            clusters[-1].append((sec, desc))
+        else:
+            clusters.append([(sec, desc)])
+
+    results = []
+    for cluster in clusters:
+        cluster_start = cluster[0][0]
+        cluster_end = cluster[-1][0]
+        w_start, w_end = frame_compilation_window(
+            cluster_start,
+            cluster_end,
+            min_duration=min_duration,
+            max_duration=max_duration,
+            pre_climax_seconds=pre_climax_seconds,
+            post_climax_seconds=post_climax_seconds,
+            video_end=video_end,
+        )
+        results.append((w_start, w_end, cluster))
+
+    return results
+
+
+def frame_compilation_window(
+    peak_start: float,
+    peak_end: float,
+    cut_times: list[float] | None = None,
+    min_duration: float = 25.0,
+    max_duration: float = 90.0,
+    pre_climax_seconds: float = 4.5,
+    post_climax_seconds: float = 6.5,
+    video_end: float = 999999.0,
+) -> tuple[float, float]:
+    """Frame a compilation clip around an action highlight (or bundle of highlights).
+
+    - Pre-climax lead-in: starts at least pre_climax_seconds (default 4.5s) before peak_start.
+    - Post-climax follow-through: runs at least post_climax_seconds (default 6.5s) after peak_end.
+    - Safe margins: does NOT aggressively snap or cut mid-action on cuts_raw.
+    - Enforces min_duration (default 25.0s) and max_duration (default 90.0s).
+    """
+    cand_start = max(0.0, peak_start - pre_climax_seconds)
+    cand_end = min(video_end, peak_end + post_climax_seconds)
+
+    # Minimum duration enforcement (expand outward smoothly)
+    if cand_end - cand_start < min_duration:
+        needed = min_duration - (cand_end - cand_start)
+        add_after = min(max(0.0, video_end - cand_end), needed / 2.0)
+        cand_end += add_after
+        needed = min_duration - (cand_end - cand_start)
+        cand_start = max(0.0, cand_start - needed)
+        if cand_end - cand_start < min_duration:
+            cand_end = min(video_end, cand_start + min_duration)
+
+    # Maximum duration enforcement
+    if cand_end - cand_start > max_duration:
+        cand_end = min(video_end, cand_start + max_duration)
+
+    return (round(float(cand_start), 2), round(float(cand_end), 2))
+
+
 def _frame_game_window(c: ClipCandidate, segments: list[Segment], min_duration: float,
                        max_duration: float, video_end: float) -> ClipCandidate:
     """A game moment's window as a 15-35 s clip (within the user's limits):
@@ -941,6 +1165,7 @@ def _build_events(
     visual_raw: dict,
     threshold: float = 0.92,
     max_events: int = 120,
+    visual_captions: list[tuple[float, str]] | None = None,
 ) -> list[tuple[float, str]]:
     """Compact (second, description) list of standout moments for prompts."""
     events = []
@@ -958,9 +1183,14 @@ def _build_events(
             parts.append("rapid scene cuts")
         if parts:
             events.append((float(sec), " + ".join(parts)))
-    if len(events) > max_events:  # keep the most spread-out subset
-        step = len(events) / max_events
-        events = [events[int(i * step)] for i in range(max_events)]
+    if visual_captions:
+        for t, desc in visual_captions:
+            events.append((float(t), desc))
+        events.sort(key=lambda ev: ev[0])
+    effective_max = max(max_events, len(visual_captions) + 60) if visual_captions else max_events
+    if len(events) > effective_max:  # keep the most spread-out subset
+        step = len(events) / effective_max
+        events = [events[int(i * step)] for i in range(effective_max)]
     return events
 
 

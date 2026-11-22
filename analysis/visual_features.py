@@ -54,10 +54,15 @@ def extract_visual_features(video_path: Path) -> dict[str, np.ndarray]:
         k = int(SAMPLE_FPS)
         return reducer(x[: n_secs * k].reshape(n_secs, k), axis=1).astype(np.float32)
 
+    cut_indices = np.where(cuts_raw > 0)[0]
+    cut_times = [float(i / SAMPLE_FPS) for i in cut_indices]
+
     return {
         "motion": per_sec(diffs, np.mean),
         "scene_cut": per_sec(cuts_raw, np.sum),
         "flash": per_sec(flash_raw, np.max),
+        "cuts_raw": cuts_raw,
+        "cut_times": cut_times,
     }
 
 

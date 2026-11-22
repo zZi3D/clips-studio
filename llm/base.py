@@ -53,8 +53,8 @@ class LLMBackend(ABC):
         """
         return False
 
-    def look(self, prompt: str, images: list[bytes]) -> str:
-        """One JSON completion over `prompt` and JPEG `images`, in order."""
+    def look(self, prompt: str, images: list[bytes], *, json_mode: bool | None = None) -> str:
+        """One completion over `prompt` and JPEG `images`, in order."""
         raise NotImplementedError(f"{self.name} can't look at images")
 
     def chat(self, messages: list[dict], tools: list[dict]) -> ChatTurn:
