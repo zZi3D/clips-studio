@@ -334,9 +334,10 @@ export default function QueueItemSettings({
             </button>
             <button
               type="button"
-              disabled
-              className="px-3 py-1.5 rounded-md text-xs font-medium bg-slate-800/50 text-slate-500 opacity-60 cursor-not-allowed"
-              title={t('Recap (How-To) will be activated in Round 2')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                clipMode === 'recap' ? 'bg-[#38BDF8] text-slate-950 font-semibold shadow-sm' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+              onClick={() => setClipMode('recap')}
             >
               {t('Recap (How-To)')}
             </button>
@@ -350,6 +351,14 @@ export default function QueueItemSettings({
               {t('Video to Clips (2-3 min)')}
             </button>
           </div>
+          {clipMode === 'recap' && (
+            <div className="mt-1 text-[11px] text-slate-400 space-y-0.5 border-t border-slate-800/80 pt-1.5">
+              <div>✓ {t('Detects on-screen tutorial steps, maps & items')}</div>
+              <div>✓ {t('Tightly bounded 5–20s steps (-2.5s / +3.0s margins)')}</div>
+              <div>✓ {t('Chronological storytelling order')}</div>
+              <div>✓ {t('Auto-stitched into recap.mp4')}</div>
+            </div>
+          )}
           {clipMode === 'video_to_clips' && (
             <div className="mt-1 text-[11px] text-slate-400 space-y-0.5 border-t border-slate-800/80 pt-1.5">
               <div>✓ {t('Full video coverage (1000+ min)')}</div>

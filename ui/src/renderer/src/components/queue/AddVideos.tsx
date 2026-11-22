@@ -1075,9 +1075,13 @@ export default function AddVideos({ onAdded }: { onAdded?: () => void }): JSX.El
                     </button>
                     <button
                       type="button"
-                      disabled
-                      className="px-2 py-0.5 rounded font-medium text-slate-500 opacity-60 cursor-not-allowed"
-                      title={t('Recap (How-To): captures on-screen tutorial steps and stitches into recap.mp4 (Round 2)')}
+                      className={`px-2 py-0.5 rounded font-medium transition-all ${
+                        currentMode === 'recap'
+                          ? 'bg-[#38BDF8] text-slate-950 font-semibold shadow-sm'
+                          : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                      }`}
+                      title={t('Recap (How-To): captures on-screen tutorial steps, secret items, and maps into recap.mp4.')}
+                      onClick={() => replaceOptions(slot.key, setSlotClipMode(slot.options, 'recap'))}
                     >
                       {t('Recap (How-To)')}
                     </button>
@@ -1174,6 +1178,21 @@ export default function AddVideos({ onAdded }: { onAdded?: () => void }): JSX.El
                 </button>
               )}
             </div>
+
+            {getSlotClipMode(slot.options) === 'recap' && (
+              <div className="card mt-2 py-2 px-3 bg-[#0F172A]/70 border border-[#38BDF8]/30 rounded-lg text-xs space-y-1">
+                <div className="font-semibold text-[#38BDF8] flex items-center gap-1.5">
+                  <span>Recap (How-To)</span>
+                  <span className="text-[10px] text-muted font-normal">({t('Step-by-step walkthrough')})</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 text-slate-300">
+                  <div>✓ {t('Detects on-screen tutorial steps, maps & items')}</div>
+                  <div>✓ {t('Tightly bounded 5–20s steps (-2.5s / +3.0s margins)')}</div>
+                  <div>✓ {t('Chronological storytelling order')}</div>
+                  <div>✓ {t('Auto-stitched into recap.mp4')}</div>
+                </div>
+              </div>
+            )}
 
             {getSlotClipMode(slot.options) === 'video_to_clips' && (
               <div className="card mt-2 py-2 px-3 bg-[#0F172A]/70 border border-[#38BDF8]/30 rounded-lg text-xs space-y-1">
