@@ -151,6 +151,8 @@ export const api = {
         vertical_live: opts.vertical_live ?? null,
         gaming: opts.gaming ?? null,
         compilation: opts.compilation ?? null,
+        recap: opts.recap ?? null,
+        video_to_clips: opts.video_to_clips ?? null,
         gaming_scoring: opts.gaming_scoring ?? null,
         gaming_layout: opts.gaming_layout ?? null,
         gaming_remember: opts.gaming_remember ?? null,

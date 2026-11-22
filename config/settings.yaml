@@ -59,6 +59,8 @@ transcription:
 
 clips:
   compilation: false          # true = compilation mode (unlimited clips, cut-bounded gags, post-climax follow-through)
+  recap: false                # true = recap mode (tutorials/walkthroughs stitched into single recap.mp4)
+  video_to_clips: false       # true = video to clips (2-3 min batches, part_01.mp4, etc.)
   min_score: 55         # discard candidates scored below this (0-100).
                         # Higher = fewer, better clips. Kept generous on
                         # purpose: creators pick what to post — a ~2h stream
@@ -119,6 +121,29 @@ compilation_mode:
   merge_gap_seconds: 18.0 # merge consecutive highlights within 18s into one continuous clip
   pre_climax_seconds: 4.5 # start at least 4.5s before the first action highlight
   post_climax_seconds: 6.5 # play at least 6.5s after the last action highlight
+
+recap_mode:
+  visual_analysis: true
+  min_duration: 5.0       # tutorial steps 5-20s
+  max_duration: 20.0
+  pre_climax_seconds: 2.5 # 2.5s lead-in
+  post_climax_seconds: 3.0 # 3.0s follow-through
+  merge_gap_seconds: 6.0
+  min_score_offset: -15
+  output_file: recap.mp4
+
+video_to_clips_mode:
+  visual_analysis: true
+  min_duration: 15.0      # individual highlight clips within batches
+  max_duration: 60.0
+  pre_climax_seconds: 3.5 # 3.5s lead-in
+  post_climax_seconds: 5.0 # 5.0s follow-through
+  merge_gap_seconds: 12.0 # merge consecutive highlights within 12s
+  target_part_duration_min: 120.0 # 2-3 minute batches (120-180s)
+  target_part_duration_max: 180.0
+  frame_interval_seconds: 8.0 # dynamic frame sampling for long videos
+  max_frames: 1200        # scan up to 90+ min videos
+  min_score_offset: -20
 
 analysis:
   # Duplicate prevention thresholds

@@ -77,25 +77,65 @@ def find_clips(
 
     from core import modes
     compilation = modes.is_compilation(config)
-    compilation_cfg = config.get("compilation_mode", {}) if compilation else {}
-    if compilation:
+    recap = modes.is_recap(config)
+    video_to_clips = modes.is_video_to_clips(config)
+    is_action_mode = compilation or recap or video_to_clips
+
+    if recap:
+        action_cfg = config.get("recap_mode", {})
+        action_type = "recap"
+        default_min_dur = 5.0
+        default_max_dur = 20.0
+        default_merge_gap = 6.0
+        default_pre_climax = 2.5
+        default_post_climax = 3.0
+        default_offset = -15.0
+    elif video_to_clips:
+        action_cfg = config.get("video_to_clips_mode", {})
+        action_type = "video_to_clips"
+        default_min_dur = 15.0
+        default_max_dur = 60.0
+        default_merge_gap = 12.0
+        default_pre_climax = 3.5
+        default_post_climax = 5.0
+        default_offset = -20.0
+    elif compilation:
+        action_cfg = config.get("compilation_mode", {})
+        action_type = "compilation"
+        default_min_dur = 25.0
+        default_max_dur = 90.0
+        default_merge_gap = 18.0
+        default_pre_climax = 4.5
+        default_post_climax = 6.5
+        default_offset = -20.0
+    else:
+        action_cfg = {}
+        action_type = "standard"
+        default_min_dur = 25.0
+        default_max_dur = 90.0
+        default_merge_gap = 18.0
+        default_pre_climax = 4.5
+        default_post_climax = 6.5
+        default_offset = 0.0
+
+    if is_action_mode:
         clips_cfg = dict(clips_cfg)
-        if "min_duration" in compilation_cfg:
-            clips_cfg["min_duration"] = float(compilation_cfg["min_duration"])
-        if "max_duration" in compilation_cfg:
-            clips_cfg["max_duration"] = float(compilation_cfg["max_duration"])
-        if "max_clips" in compilation_cfg:
-            clips_cfg["max_clips_per_video"] = int(compilation_cfg["max_clips"])
-        offset = float(compilation_cfg.get("min_score_offset", -20))
+        clips_cfg["min_duration"] = float(action_cfg.get("min_duration", default_min_dur))
+        clips_cfg["max_duration"] = float(action_cfg.get("max_duration", default_max_dur))
+        if "max_clips" in action_cfg:
+            clips_cfg["max_clips_per_video"] = int(action_cfg["max_clips"])
+        else:
+            clips_cfg["max_clips_per_video"] = 0
+        offset = float(action_cfg.get("min_score_offset", default_offset))
         clips_cfg["min_score"] = max(0, int(clips_cfg.get("min_score", 55) + offset))
-        merge_gap = float(compilation_cfg.get("merge_gap_seconds", 18.0))
-        pre_climax = float(compilation_cfg.get("pre_climax_seconds", 4.5))
-        post_climax = float(compilation_cfg.get("post_climax_seconds", 6.5))
-        if compilation_cfg.get("visual_analysis", True):
+        merge_gap = float(action_cfg.get("merge_gap_seconds", default_merge_gap))
+        pre_climax = float(action_cfg.get("pre_climax_seconds", default_pre_climax))
+        post_climax = float(action_cfg.get("post_climax_seconds", default_post_climax))
+        if action_cfg.get("visual_analysis", True):
             vis_cfg = dict(config.get("visual_analysis", {}))
             vis_cfg["enabled"] = True
             config = {**config, "visual_analysis": vis_cfg}
-        print(f"  Compilation Mode active: bundled action framing ({merge_gap:.0f}s gap), "
+        print(f"  {action_type.replace('_', ' ').title()} Mode active: bundled framing ({merge_gap:.0f}s gap), "
               f"margins (-{pre_climax:.1f}s / +{post_climax:.1f}s), min_score={clips_cfg['min_score']}")
     else:
         merge_gap = 18.0
@@ -276,8 +316,8 @@ def find_clips(
     end_of_video = max(segments[-1].end if segments else 0.0,
                        float(audio_excitement.size if audio_excitement.size else visual_activity.size))
 
-    compilation_cands: list[ClipCandidate] = []
-    if compilation and events:
+    action_cands: list[ClipCandidate] = []
+    if is_action_mode and events:
         bundled = bundle_compilation_highlights(
             events,
             min_duration=clips_cfg["min_duration"],
@@ -288,7 +328,7 @@ def find_clips(
             video_end=end_of_video,
         )
         for w_start, w_end, cluster in bundled:
-            if any(abs(c.start - w_start) < 1.0 and abs(c.end - w_end) < 1.0 for c in compilation_cands):
+            if any(abs(c.start - w_start) < 1.0 and abs(c.end - w_end) < 1.0 for c in action_cands):
                 continue
             visual_descs = [d.replace("VISUAL: ", "").strip() for _, d in cluster if d.startswith("VISUAL:")]
             if visual_descs:
@@ -298,19 +338,28 @@ def find_clips(
                 hook = cluster[0][1]
                 summary = cluster[0][1]
             score = min(95, 82 + len(cluster) * 2)
-            compilation_cands.append(
+            if recap:
+                reason = f"Recap step ({len(cluster)} events): {summary}"
+                src = "recap"
+            elif video_to_clips:
+                reason = f"Video to Clips ({len(cluster)} events): {summary}"
+                src = "video_to_clips"
+            else:
+                reason = f"Compilation action ({len(cluster)} events): {summary}"
+                src = "compilation"
+            action_cands.append(
                 ClipCandidate(
                     start=w_start,
                     end=w_end,
                     score=score,
                     engagement=score,
                     hook=hook,
-                    reason=f"Compilation action ({len(cluster)} events): {summary}",
-                    source="compilation",
+                    reason=reason,
+                    source=src,
                 )
             )
-        if compilation_cands:
-            print(f"  Compilation Mode: bundled {len(compilation_cands)} coherent action segment(s) from {len(events)} events")
+        if action_cands:
+            print(f"  {action_type.replace('_', ' ').title()} Mode: bundled {len(action_cands)} coherent segment(s) from {len(events)} events")
 
     if peak_windows:
         print(f"  {len(peak_windows)} signal-peak window(s) found beyond transcript picks "
@@ -324,7 +373,7 @@ def find_clips(
                if gaming is not None else {}),
             **highlights.window_options(selection),
         )
-        if gaming is None and not compilation:
+        if gaming is None and not is_action_mode:
             signal_cands = [
                 highlights._fit_to_segments(
                     c, segments, clips_cfg["min_duration"], clips_cfg["max_duration"], target_duration=25.0,
@@ -332,7 +381,7 @@ def find_clips(
                 )
                 for c in signal_cands
             ]
-        elif compilation:
+        elif is_action_mode:
             reframed = []
             for c in signal_cands:
                 w_s, w_e = frame_compilation_window(
@@ -355,11 +404,11 @@ def find_clips(
             ]
         candidates += signal_cands
 
-    if compilation:
-        candidates = compilation_cands + candidates
-        # Reframe any remaining transcript candidates to compilation margins
+    if is_action_mode:
+        candidates = action_cands + candidates
+        # Reframe any remaining transcript candidates to action margins
         for c in candidates:
-            if c.source != "compilation":
+            if c.source not in ("compilation", "recap", "video_to_clips"):
                 w_s, w_e = frame_compilation_window(
                     c.start, c.end,
                     min_duration=clips_cfg["min_duration"],
@@ -694,7 +743,7 @@ def find_clips(
             return (a is not None and b is not None and a.confirmed and b.confirmed
                     and not a.is_replay and not b.is_replay and a.group != b.group)
     distinct_fn = two_plays
-    if compilation:
+    if is_action_mode:
         distinct_fn = lambda c, k: c.overlap_ratio(k) < 0.40
 
     finalists, rejections = highlights._select_unique(
@@ -755,6 +804,8 @@ def find_clips(
         finalists.sort(key=first, reverse=True)  # a must-have survives the cap below too
 
     kept = finalists[:max_clips] if max_clips > 0 else finalists
+    if recap or video_to_clips:
+        kept.sort(key=lambda c: c.start)
     rejections += [Rejection(c, "over_limit") for c in finalists[len(kept):]]
     return kept, rejections
 

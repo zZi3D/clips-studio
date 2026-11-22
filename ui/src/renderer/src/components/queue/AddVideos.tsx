@@ -70,6 +70,8 @@ type ToggleKey =
   | 'vertical_live'
   | 'gaming'
   | 'compilation'
+  | 'recap'
+  | 'video_to_clips'
   | 'sport'
   | 'longform'
   | 'pipeline'
@@ -125,6 +127,20 @@ const TOGGLES: { key: ToggleKey; label: string; hint: string; title: string }[] 
     hint: '(highlights/fails)',
     title:
       'For compilation videos (funny moments, GTA fails, stunt reels, glitch clips). Clips every qualifying action highlight without an arbitrary limit, cuts cleanly on scene transitions, and preserves the full climax and aftermath.'
+  },
+  {
+    key: 'recap',
+    label: 'Recap',
+    hint: '(Tutorial)',
+    title:
+      'For silent tutorials, walkthroughs and easter eggs with steps on screen. Captures tutorial steps, map locations and items, and stitches them into a single recap.mp4.'
+  },
+  {
+    key: 'video_to_clips',
+    label: 'Video to Clips',
+    hint: '(2-3 min)',
+    title:
+      'For long gameplay videos (60 to 90+ min). Scans the full video and groups all qualifying highlights into successive 2-3 minute continuous parts (part_01.mp4, part_02.mp4, etc.).'
   },
   {
     key: 'sport',
@@ -190,6 +206,8 @@ const PREF = {
   gaming: 'generate-gaming',
   gaming_scoring: 'generate-gaming-scoring',
   compilation: 'generate-compilation',
+  recap: 'generate-recap',
+  video_to_clips: 'generate-video-to-clips',
   sport: 'generate-sport',
   longform: 'generate-longform',
   longform_mode: 'generate-longform-mode',
@@ -300,6 +318,8 @@ function remember(key: ToggleKey, on: boolean, mode?: string): void {
     else if (key === 'vertical_live') localStorage.setItem(PREF.vertical_live, String(on))
     else if (key === 'gaming') localStorage.setItem(PREF.gaming, String(on))
     else if (key === 'compilation') localStorage.setItem(PREF.compilation, String(on))
+    else if (key === 'recap') localStorage.setItem(PREF.recap, String(on))
+    else if (key === 'video_to_clips') localStorage.setItem(PREF.video_to_clips, String(on))
     else if (key === 'sport') localStorage.setItem(PREF.sport, String(on))
     else if (key === 'edit' && !on) localStorage.removeItem(PREF.edit) // on, rememberEdit keeps the list
     else if (key === 'longform') {
@@ -344,6 +364,12 @@ export function seedOptions(): JobOptions {
   }
   if (localStorage.getItem(PREF.compilation) === 'true') {
     o.compilation = true
+  }
+  if (localStorage.getItem(PREF.recap) === 'true') {
+    o.recap = true
+  }
+  if (localStorage.getItem(PREF.video_to_clips) === 'true') {
+    o.video_to_clips = true
   }
   // Sports too: Podcast and Gaming each score the video their own way, and
   // win over it.
@@ -678,6 +704,12 @@ export default function AddVideos({ onAdded }: { onAdded?: () => void }): JSX.El
     } else if (key === 'compilation') {
       if (on) next.compilation = true
       else delete next.compilation
+    } else if (key === 'recap') {
+      if (on) next.recap = true
+      else delete next.recap
+    } else if (key === 'video_to_clips') {
+      if (on) next.video_to_clips = true
+      else delete next.video_to_clips
     } else if (key === 'sport') {
       const start = on ? (next.sport ?? startingSport(offered)) : null
       if (start) {
@@ -849,6 +881,8 @@ export default function AddVideos({ onAdded }: { onAdded?: () => void }): JSX.El
     if (key === 'vertical_live') return Boolean(o.vertical_live)
     if (key === 'gaming') return Boolean(o.gaming)
     if (key === 'compilation') return Boolean(o.compilation)
+    if (key === 'recap') return Boolean(o.recap)
+    if (key === 'video_to_clips') return Boolean(o.video_to_clips)
     if (key === 'sport') return Boolean(o.sport)
     if (key === 'longform') return Boolean(o.longform)
     if (key === 'pipeline') return Boolean(o.pipeline)

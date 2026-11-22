@@ -16,15 +16,23 @@ import cv2
 import numpy as np
 
 from analysis.game_vision import _jpeg, can_see
-from core import cancel
+from core import cancel, modes
 from llm.base import LLMBackend
 from video.capture import video_capture
 
-PROMPT = (
+PROMPT_ACTION = (
     "Describe in max 12 words if something funny, chaotic, a crash, explosion, "
     "glitch, ragdoll, or impressive stunt happens in this gameplay frame. "
     "Reply strictly 'NORMAL' if nothing special happens."
 )
+
+PROMPT_RECAP = (
+    "Describe in max 14 words if this frame shows a tutorial step, map location, "
+    "secret item, easter egg, objective, puzzle, crash, or key gameplay event. "
+    "Reply strictly 'NORMAL' if it is only idle walking, driving, loading, or nothing notable happens."
+)
+
+PROMPT = PROMPT_ACTION
 
 
 def _find_installed_vision_model(host: str) -> str | None:
@@ -190,6 +198,20 @@ def describe_visual_events(
     interval = float(vis_cfg.get("interval_seconds", 3.0))
     max_frames = int(vis_cfg.get("max_frames", 120))
 
+    recap_active = modes.is_recap(full_config)
+    video_to_clips_active = modes.is_video_to_clips(full_config)
+
+    if video_to_clips_active:
+        v2c_cfg = (full_config or {}).get("video_to_clips_mode", {})
+        interval = float(v2c_cfg.get("frame_interval_seconds", 8.0))
+        max_frames = int(v2c_cfg.get("max_frames", 1200))
+    elif recap_active:
+        rcp_cfg = (full_config or {}).get("recap_mode", {})
+        interval = float(rcp_cfg.get("frame_interval_seconds", interval))
+        max_frames = int(rcp_cfg.get("max_frames", max_frames))
+
+    prompt = PROMPT_RECAP if recap_active else PROMPT_ACTION
+
     vision_backend = resolve_vision_backend(llm, vis_cfg, full_config)
     if vision_backend is None:
         return []
@@ -240,7 +262,7 @@ def describe_visual_events(
                 continue
 
             try:
-                raw_answer = vision_backend.look(PROMPT, [img_bytes], json_mode=False)
+                raw_answer = vision_backend.look(prompt, [img_bytes], json_mode=False)
             except Exception as e:
                 # Log once or continue gracefully on server/timeout issues
                 print(f"    (frame at {t:.1f}s look failed: {e})")

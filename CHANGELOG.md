@@ -22,6 +22,20 @@ fixed were often broken in a way that only showed up on somebody else's machine.
   - Automatically filters mundane frames by instructing the vision model to detect funny, chaotic, crash, explosion, glitch, ragdoll, or stunt gameplay events, strictly ignoring non-action ("NORMAL") responses.
   - Integrates `VISUAL:` events into candidate scoring so high-action and visual comedy moments receive high clip scores even without voice or audio spikes.
 
+- **Recap (Tutorial) Mode.**
+  - New dedicated mode designed specifically for silent walkthroughs, tutorials, easter eggs, and secret item guides with on-screen steps.
+  - **Dashboard & UI Toggle:** Added `Recap (Tutorial)` checkbox on the dashboard and per-job settings.
+  - **Enhanced Vision Prompting:** Instructs the vision model to identify tutorial steps, map locations, secret items, easter eggs, objectives, and on-screen text, only filtering out idle walking, driving, or loading screens.
+  - **Step-Fragment Framing:** Extracts all qualifying step moments with 2.5s lead-in (`pre_climax_seconds: 2.5s`) and 3.0s follow-through (`post_climax_seconds: 3.0s`) in tight 5–20s windows (`merge_gap_seconds: 6.0s`).
+  - **Automatic Concat:** Stitches all step fragments in chronological order via FFmpeg stream-copy concat into a finished `recap.mp4` video in the output directory.
+
+- **Video to Clips (2-3 min) Mode.**
+  - Designed for long gameplay sessions (60 to 90+ minutes) to extract all highlights and compile them into sequential 2 to 3 minute video parts (`120` to `180` seconds).
+  - **Dashboard & UI Toggle:** Added `Video to Clips (2-3 min)` checkbox on the dashboard and per-job settings.
+  - **Dynamic Timeline Scanning:** Dynamically scales visual frame interval (8.0s) and max frames (up to 1200 frames) based on video duration, ensuring 60–90+ minute videos are thoroughly scanned across the full timeline.
+  - **Highlight Bundling:** Merges consecutive highlights occurring within 12 seconds with 3.5s lead-in (`pre_climax_seconds: 3.5s`) and 5.0s follow-through (`post_climax_seconds: 5.0s`) into individual 15–60s highlight clips.
+  - **Sequential Multi-Part Stitching:** Chronologically groups all qualifying clips into consecutive 120–180s batches, rendering each batch as a continuous video (`part_01.mp4`, `part_02.mp4`, `part_03.mp4`, etc.) until the entire stream is clipped.
+
 - **Compilation Mode.**
   - New dedicated mode designed specifically for compilation videos, montages, and highlight reels containing multiple distinct clips or gags of any duration (from 4 to 100+ moments).
   - **Dashboard & UI Toggle:** Added a `Compilation` checkbox next to `Podcast` and `Gaming / Reaction` on the Add Videos card and in individual queue item settings.

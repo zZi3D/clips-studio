@@ -852,6 +852,18 @@ def process_video(url: str, config: dict, db: StateDB, force: bool = False) -> l
         rendered += _sport_reels(db, video.video_id, sport_profile, made, clip_dir, config, segments,
                                  made_seconds=made_seconds)
 
+    # Recap (Tutorial) Mode: stitch all qualifying step fragments into a single recap.mp4
+    if modes.is_recap(config) and made:
+        recap_clip = _make_recap_video(db, video.video_id, made, clip_dir, config)
+        if recap_clip:
+            rendered.append(recap_clip)
+
+    # Video to Clips (2-3 min) Mode: group highlights into sequential 120-180s part videos
+    if modes.is_video_to_clips(config) and made:
+        part_clips = _make_video_to_clips_parts(db, video.video_id, made, clip_dir, config)
+        if part_clips:
+            rendered.extend(part_clips)
+
     elapsed = time.monotonic() - started
     db.set_process_seconds(video.video_id, elapsed)
     db.set_video_status(video.video_id, "done")
@@ -940,6 +952,152 @@ def _sport_reels(db: StateDB, video_id: str, profile, clips: list, clip_dir: Pat
     except Exception as e:
         print(f"      (story reels not made: {e})")
     return reel_clips
+
+
+def _make_recap_video(db: StateDB, video_id: str, made: list, clip_dir: Path, config: dict):
+    """Stitch all rendered clips in chronological order into a single recap.mp4."""
+    if not made:
+        return None
+    try:
+        from analysis.metadata import ClipMetadata
+        from video.encoding import concat, concat_entry, ffmpeg
+        from core.paths import discard
+        import subprocess
+
+        ordered = sorted(made, key=lambda c: c.candidate.start)
+        paths = [c.path for c in ordered if Path(c.path).exists()]
+        if not paths:
+            return None
+
+        out_name = (config.get("recap_mode") or {}).get("output_file") or "recap.mp4"
+        out_path = clip_dir / out_name
+        listing = out_path.with_suffix(".txt")
+        rows = [concat_entry(Path(p).resolve().as_posix()) for p in paths]
+        listing.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+        try:
+            r = concat(listing, out_path)
+            if r.returncode != 0 or not out_path.exists() or out_path.stat().st_size == 0:
+                cmd = [
+                    ffmpeg(), "-y", "-v", "error", "-f", "concat", "-safe", "0",
+                    "-i", str(listing), "-c:v", "libx264", "-c:a", "aac", str(out_path)
+                ]
+                subprocess.run(cmd, check=True)
+        finally:
+            discard(listing)
+
+        start_time = ordered[0].candidate.start
+        end_time = ordered[-1].candidate.end
+        end = _free_end(db, video_id, start_time, end_time)
+        total_score = max(c.candidate.score for c in ordered)
+        meta = ClipMetadata(
+            title="Recap / Walkthrough",
+            description=f"Full recap stitched from {len(ordered)} step fragments.",
+            hashtags=["#recap", "#tutorial", "#walkthrough"]
+        )
+        cand = ClipCandidate(
+            start=start_time,
+            end=end,
+            score=total_score,
+            hook="Full Recap",
+            reason=f"Recap of {len(ordered)} tutorial steps",
+            source="recap"
+        )
+        registered = _register_clip(db, video_id, cand, out_path, meta, json.dumps({"mode": "recap"}), config)
+        print(f"      Recap video created: {out_path.name} ({len(ordered)} fragments)")
+        return registered
+    except Exception as e:
+        print(f"      (recap video generation failed: {e})")
+        return None
+
+
+def _make_video_to_clips_parts(db: StateDB, video_id: str, made: list, clip_dir: Path, config: dict) -> list:
+    """Group rendered clips chronologically into 120-180s sequential batches (part_01.mp4, part_02.mp4, etc.)."""
+    if not made:
+        return []
+    try:
+        from analysis.metadata import ClipMetadata
+        from video.encoding import concat, concat_entry, ffmpeg
+        from core.paths import discard
+        import subprocess
+
+        v2c_cfg = config.get("video_to_clips_mode") or {}
+        min_part_dur = float(v2c_cfg.get("target_part_duration_min", 120.0))
+        max_part_dur = float(v2c_cfg.get("target_part_duration_max", 180.0))
+
+        ordered = sorted(made, key=lambda c: c.candidate.start)
+
+        batches: list[list] = []
+        cur_batch: list = []
+        cur_dur = 0.0
+
+        for clip in ordered:
+            if not Path(clip.path).exists():
+                continue
+            dur = clip.candidate.end - clip.candidate.start
+            if not cur_batch:
+                cur_batch.append(clip)
+                cur_dur += dur
+                continue
+
+            if (cur_dur + dur > max_part_dur and cur_dur >= min_part_dur) or (cur_dur + dur > max_part_dur + 30.0):
+                batches.append(cur_batch)
+                cur_batch = [clip]
+                cur_dur = dur
+            else:
+                cur_batch.append(clip)
+                cur_dur += dur
+
+        if cur_batch:
+            batches.append(cur_batch)
+
+        result_clips = []
+        for idx, batch in enumerate(batches, start=1):
+            part_name = f"part_{idx:02d}.mp4"
+            out_path = clip_dir / part_name
+            paths = [c.path for c in batch]
+            listing = out_path.with_suffix(".txt")
+            rows = [concat_entry(Path(p).resolve().as_posix()) for p in paths]
+            listing.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+            try:
+                r = concat(listing, out_path)
+                if r.returncode != 0 or not out_path.exists() or out_path.stat().st_size == 0:
+                    cmd = [
+                        ffmpeg(), "-y", "-v", "error", "-f", "concat", "-safe", "0",
+                        "-i", str(listing), "-c:v", "libx264", "-c:a", "aac", str(out_path)
+                    ]
+                    subprocess.run(cmd, check=True)
+            finally:
+                discard(listing)
+
+            b_start = batch[0].candidate.start
+            b_end = batch[-1].candidate.end
+            end = _free_end(db, video_id, b_start, b_end)
+            total_dur = sum(c.candidate.end - c.candidate.start for c in batch)
+            best_score = max(c.candidate.score for c in batch)
+            meta = ClipMetadata(
+                title=f"Highlights Part {idx:02d}",
+                description=f"Part {idx:02d} containing {len(batch)} highlights ({total_dur:.0f}s).",
+                hashtags=[f"#part{idx}", "#gaming", "#highlights"]
+            )
+            cand = ClipCandidate(
+                start=b_start,
+                end=end,
+                score=best_score,
+                hook=f"Part {idx:02d}",
+                reason=f"Sequential batch {idx} with {len(batch)} clips",
+                source="video_to_clips"
+            )
+            registered = _register_clip(db, video_id, cand, out_path, meta, json.dumps({"mode": "video_to_clips", "part": idx}), config)
+            if registered:
+                result_clips.append(registered)
+            print(f"      Video to Clips: {part_name} created ({len(batch)} clips, {total_dur:.0f}s)")
+
+        return result_clips
+    except Exception as e:
+        print(f"      (video to clips batch generation failed: {e})")
+        return []
 
 
 def _reel_rows(db: StateDB, video_id: str) -> dict:

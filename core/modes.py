@@ -65,6 +65,30 @@ def is_compilation(config_or_opts: dict | None) -> bool:
     return bool(isinstance(clips, dict) and (clips.get("compilation") or clips.get("compilation_mode")))
 
 
+def is_recap(config_or_opts: dict | None) -> bool:
+    """Recap (Tutorial) Mode: optimized for silent tutorials, walkthroughs,
+    easter eggs, and on-screen guides. Captures tutorial steps, map locations,
+    and items, then stitches them into a single recap.mp4."""
+    if not config_or_opts:
+        return False
+    if config_or_opts.get("recap") or config_or_opts.get("recap_mode"):
+        return True
+    clips = config_or_opts.get("clips")
+    return bool(isinstance(clips, dict) and (clips.get("recap") or clips.get("recap_mode")))
+
+
+def is_video_to_clips(config_or_opts: dict | None) -> bool:
+    """Video to Clips (2-3 min) Mode: optimized for 60 to 90+ minute videos,
+    scanning the entire video timeline and grouping all highlights into sequential
+    multi-minute parts (part_01.mp4, part_02.mp4, etc.)."""
+    if not config_or_opts:
+        return False
+    if config_or_opts.get("video_to_clips") or config_or_opts.get("video_to_clips_mode"):
+        return True
+    clips = config_or_opts.get("clips")
+    return bool(isinstance(clips, dict) and (clips.get("video_to_clips") or clips.get("video_to_clips_mode")))
+
+
 def is_gaming(config_or_opts: dict | None) -> bool:
     """Gaming / Split-Screen (the gaming/ package, docs/GAMING.md): the
     streamer's webcam over the game in a split, or the game filling the

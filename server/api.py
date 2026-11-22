@@ -56,6 +56,8 @@ class JobIn(BaseModel):
     vertical_live: bool | None = None  # an already-composed 9:16 live: keep its layout, no face tracking
     gaming: bool | None = None  # Gaming / Split-Screen: webcam over the game, or the game alone
     compilation: bool | None = None  # Compilation Mode: cut-bounded action framing, no clip cap
+    recap: bool | None = None  # Recap (Tutorial) Mode: walkthroughs/easter eggs stitched into recap.mp4
+    video_to_clips: bool | None = None  # Video to Clips (2-3 min) Mode: long gameplay divided into multi-minute parts
     gaming_scoring: bool | None = None  # score as a gaming stream (with Vertical Live etc.)
     gaming_layout: dict | None = None  # the split set up before processing (gaming/run.py keys)
     gaming_remember: bool | None = None  # ...also kept for this creator's next videos
@@ -236,6 +238,8 @@ class LocalVideoIn(BaseModel):
     vertical_live: bool | None = None  # an already-composed 9:16 live: keep its layout, no face tracking
     gaming: bool | None = None  # Gaming / Split-Screen: webcam over the game, or the game alone
     compilation: bool | None = None  # Compilation Mode: cut-bounded action framing, no clip cap
+    recap: bool | None = None  # Recap (Tutorial) Mode: walkthroughs/easter eggs stitched into recap.mp4
+    video_to_clips: bool | None = None  # Video to Clips (2-3 min) Mode: long gameplay divided into multi-minute parts
     gaming_scoring: bool | None = None  # score as a gaming stream (with Vertical Live etc.)
     gaming_layout: dict | None = None  # the split set up before processing (gaming/run.py keys)
     gaming_remember: bool | None = None  # ...also kept for this creator's next videos
@@ -505,6 +509,10 @@ def _process_options(body, into: dict | None = None, data_dir: Path | None = Non
         payload["gaming"] = True
     if getattr(body, "compilation", None):
         payload["compilation"] = True
+    if getattr(body, "recap", None):
+        payload["recap"] = True
+    if getattr(body, "video_to_clips", None):
+        payload["video_to_clips"] = True
     if getattr(body, "gaming_scoring", None):
         # Score as a gaming stream (analysis/gaming.py) with whatever layout
         # the video gets, e.g. an already-vertical live of a game.

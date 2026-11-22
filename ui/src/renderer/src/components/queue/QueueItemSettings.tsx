@@ -65,6 +65,8 @@ export default function QueueItemSettings({
   const [gamingScoring, setGamingScoring] = useState(Boolean(s.gaming_scoring))
   const [gaming, setGaming] = useState(Boolean(s.gaming))
   const [compilation, setCompilation] = useState(Boolean(s.compilation))
+  const [recap, setRecap] = useState(Boolean(s.recap))
+  const [videoToClips, setVideoToClips] = useState(Boolean(s.video_to_clips))
   const [sport, setSport] = useState<SportOption | null>(s.sport ?? null)
   const sports = useSports() ?? []
   const [longform, setLongform] = useState(Boolean(s.longform))
@@ -116,6 +118,10 @@ export default function QueueItemSettings({
       else clear.push('gaming', 'gaming_layout', 'gaming_remember')
       if (compilation) patch.compilation = true
       else clear.push('compilation')
+      if (recap) patch.recap = true
+      else clear.push('recap')
+      if (videoToClips) patch.video_to_clips = true
+      else clear.push('video_to_clips')
       if (sport) patch.sport = sport
       else clear.push('sport')
       if (longform) patch.longform = { mode: longformMode, ...(longformShorts ? { shorts: true } : {}) }
@@ -306,6 +312,24 @@ export default function QueueItemSettings({
             setCompilation(on)
           },
           'For compilation videos: clips every qualifying action highlight without an arbitrary limit, cuts cleanly on scene transitions, and preserves the full climax and aftermath.'
+        )}
+        {toggle(
+          'Recap',
+          '(Tutorial)',
+          recap,
+          (on) => {
+            setRecap(on)
+          },
+          'For silent tutorials, walkthroughs and easter eggs: captures on-screen steps, map locations and items, then stitches them into a single recap.mp4.'
+        )}
+        {toggle(
+          'Video to Clips',
+          '(2-3 min)',
+          videoToClips,
+          (on) => {
+            setVideoToClips(on)
+          },
+          'For long gameplay videos (60-90+ min): extracts highlights into sequential 2-3 minute videos (part_01.mp4, part_02.mp4, etc.).'
         )}
         {(sports.length > 0 || sport) &&
           toggle(

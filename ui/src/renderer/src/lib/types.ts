@@ -499,6 +499,10 @@ export interface JobOptions {
   /** Compilation Mode: extract each action highlight without hard clip caps,
    *  bounded by scene cuts and post-climax seconds. */
   compilation?: boolean
+  /** Recap (Tutorial) Mode: captures walkthrough/tutorial steps and stitches into recap.mp4 */
+  recap?: boolean
+  /** Video to Clips (2-3 min) Mode: processes 60-90+ min video into sequential 2-3 min parts */
+  video_to_clips?: boolean
   /** Score as a gaming stream (analysis/gaming.py): in-game moments and the
    *  reactions to them count, even with little said. Offered with Vertical
    *  Live; Gaming / Reaction always scores this way. */

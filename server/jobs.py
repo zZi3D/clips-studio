@@ -225,6 +225,10 @@ class Worker(threading.Thread):
                             cfg["clips"]["gaming_remember"] = True
                     if payload.get("compilation"):
                         cfg["clips"]["compilation"] = True
+                    if payload.get("recap"):
+                        cfg["clips"]["recap"] = True
+                    if payload.get("video_to_clips"):
+                        cfg["clips"]["video_to_clips"] = True
                     if "captions" in payload:
                         cfg["clips"]["captions"] = bool(payload["captions"])
                     if payload.get("min_score") is not None:
