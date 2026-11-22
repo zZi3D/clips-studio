@@ -1182,7 +1182,7 @@ export default function AddVideos({ onAdded }: { onAdded?: () => void }): JSX.El
                   <span className="text-[10px] text-muted font-normal">({t('Full video coverage')})</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 text-slate-300">
-                  <div>✓ {t('Full video coverage (90–300+ min)')}</div>
+                  <div>✓ {t('Full video coverage (1000+ min)')}</div>
                   <div>✓ {t('Removes static screens, menus & dead air (>4.5s)')}</div>
                   <div>✓ {t('Skips silence with low motion')}</div>
                   <div>✓ {t('Smart elastic splits into 2–3 min parts (part_01, part_02...)')}</div>

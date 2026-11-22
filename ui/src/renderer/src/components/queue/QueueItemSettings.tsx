@@ -352,7 +352,7 @@ export default function QueueItemSettings({
           </div>
           {clipMode === 'video_to_clips' && (
             <div className="mt-1 text-[11px] text-slate-400 space-y-0.5 border-t border-slate-800/80 pt-1.5">
-              <div>✓ {t('Full video coverage (90–300+ min)')}</div>
+              <div>✓ {t('Full video coverage (1000+ min)')}</div>
               <div>✓ {t('Removes static screens, menus & dead air (>4.5s)')}</div>
               <div>✓ {t('Skips silence with low motion')}</div>
               <div>✓ {t('Smart elastic splits into 2–3 min parts (part_01, part_02...)')}</div>
