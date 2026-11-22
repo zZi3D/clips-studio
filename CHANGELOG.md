@@ -11,7 +11,7 @@ fixed were often broken in a way that only showed up on somebody else's machine.
 ## Unreleased
 
 > **Branch:** [`feature/visual-frame-analysis`](https://github.com/zZi3D/clips-studio/tree/feature/visual-frame-analysis)  
-> **Commit:** [`ad85b73`](https://github.com/zZi3D/clips-studio/commit/ad85b73) (`feat: visual frame analysis, compilation mode, and UI/runtime fixes`)  
+> **Commit:** [`2f70bc7`](https://github.com/zZi3D/clips-studio/commit/2f70bc7) (`feat: add Recap (Tutorial) and Video to Clips (2-3 min) modes with full stack integration and tests`)  
 > **GitHub PR:** [Create Pull Request](https://github.com/zZi3D/clips-studio/pull/new/feature/visual-frame-analysis)
 
 ### Added
