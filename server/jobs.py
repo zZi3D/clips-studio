@@ -223,12 +223,22 @@ class Worker(threading.Thread):
                             cfg["clips"]["gaming_layout"] = payload["gaming_layout"]
                         if payload.get("gaming_remember"):
                             cfg["clips"]["gaming_remember"] = True
-                    if payload.get("compilation"):
-                        cfg["clips"]["compilation"] = True
-                    if payload.get("recap"):
-                        cfg["clips"]["recap"] = True
-                    if payload.get("video_to_clips"):
-                        cfg["clips"]["video_to_clips"] = True
+                    # Mutually exclusive clip modes
+                    c_mode = payload.get("clip_mode")
+                    if not c_mode:
+                        if payload.get("video_to_clips"):
+                            c_mode = "video_to_clips"
+                        elif payload.get("recap"):
+                            c_mode = "recap"
+                        elif payload.get("compilation"):
+                            c_mode = "compilation"
+                        else:
+                            c_mode = "standard"
+
+                    cfg["clips"]["clip_mode"] = c_mode
+                    cfg["clips"]["compilation"] = (c_mode == "compilation")
+                    cfg["clips"]["recap"] = (c_mode == "recap")
+                    cfg["clips"]["video_to_clips"] = (c_mode == "video_to_clips")
                     if "captions" in payload:
                         cfg["clips"]["captions"] = bool(payload["captions"])
                     if payload.get("min_score") is not None:

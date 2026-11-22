@@ -16,6 +16,18 @@ fixed were often broken in a way that only showed up on somebody else's machine.
 
 ### Added
 
+- **Uniform Mode Selector (Ronde 1).**
+  - Replaced loose, conflicting custom checkboxes with a unified, mutually exclusive Mode Selector across the stack: `Standard` | `Compilation` | `Recap (How-To)` (reserved for Round 2) | `Video to Clips (2-3 min)`.
+  - Enforced mutual exclusivity in frontend (`types.ts`, `AddVideos.tsx`, `QueueItemSettings.tsx`) and backend (`server/api.py`, `server/jobs.py`, `core/modes.py`).
+  - Added dedicated informational overview card in the Add Videos dashboard for `Video to Clips (2-3 min)`.
+
+- **Domain-Independent Video to Clips (2-3 min) Engine (`video/video_to_clips.py`).**
+  - Designed for full recordings of any length (90 to 300+ minutes) across all domains (auto repair, DIY, tutorials, tech guides, longform gameplay) without heavy LLM vision bottlenecks.
+  - **Dead-Time Removal (>4.5s):** Fast lightweight signal analysis (`motion` from `visual_features.py` and `loudness` RMS from `audio_features.py`). Cuts frozen screens, static menus, and silence with low motion while keeping a 0.5s safety buffer before and after cuts and merging active segments <= 3.0s apart.
+  - **Snap-to-Boundary & Elastic Splitting:** Partitions active footage into 120-180s sequential parts (`part_01.mp4`, `part_02.mp4`, etc.) with +10 to +15s elastic extension that snaps to transcript sentence endings (`.`, `!`, `?` or speech pauses >0.5s), scene cuts, or motion/audio energy valleys.
+  - **No Mini-Remnant (<45s):** Automatically merges any final tail segment under 45 seconds into the preceding part to prevent awkward tiny clips.
+  - **Safe FFmpeg Rendering with 40ms Micro-Crossfades:** Generates external filter script files to bypass Windows 8192-character command-line limits, re-encoding cleanly at cutpoints with 40ms micro audio fades to eliminate clicks and pops.
+
 - **Visual Frame Analysis (Ollama Vision Integration).**
   - Clips Kitty now supports automatic visual frame analysis and captioning powered by local Ollama vision models (such as `qwen3.5`, `qwen3-vl`, or fallback `gemma4:e4b`).
   - Samples video frames on hard scene cuts (`cuts_raw`) and visual activity peaks (`visual_raw`), plus a configurable time interval (default 3.0s), up to `max_frames` (default 120) to keep processing fast.

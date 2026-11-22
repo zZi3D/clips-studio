@@ -542,6 +542,61 @@ def process_video(url: str, config: dict, db: StateDB, force: bool = False) -> l
         intent, rejections = None, []
         candidates = [ClipCandidate(0.0, video.duration, 100, hook=video.title,
                                     reason="Viewer-selected whole clip", source="viewer")]
+    elif modes.is_video_to_clips(config):
+        from video.video_to_clips import find_active_segments, partition_active_stream
+
+        audio_raw, visual_raw = signals_out.get("signals") or ({}, {})
+        if not audio_raw:
+            try:
+                from analysis.audio_features import extract_audio_features
+                audio_raw = extract_audio_features(video.path)
+            except Exception:
+                audio_raw = {}
+        if not visual_raw:
+            try:
+                from analysis.visual_features import extract_visual_features
+                visual_raw = extract_visual_features(video.path)
+            except Exception:
+                visual_raw = {}
+
+        intent, rejections = None, []
+        v2c_cfg = config.get("video_to_clips_mode", {})
+        min_dead = float(v2c_cfg.get("min_dead_duration", 4.5))
+        target_dur = float(v2c_cfg.get("target_part_duration", 180.0))
+        slack = float(v2c_cfg.get("elastic_slack", 15.0))
+        min_tail = float(v2c_cfg.get("min_tail_duration", 45.0))
+
+        active_segs = find_active_segments(
+            video.duration,
+            visual_raw=visual_raw,
+            audio_raw=audio_raw,
+            min_dead_duration=min_dead,
+            buffer_seconds=0.5,
+            merge_gap=3.0,
+        )
+        parts = partition_active_stream(
+            active_segs,
+            transcript_segments=segments,
+            cut_times=visual_raw.get("cut_times"),
+            motion=visual_raw.get("motion"),
+            loudness=audio_raw.get("loudness"),
+            target_part_duration=target_dur,
+            elastic_slack=slack,
+            min_tail_duration=min_tail,
+        )
+        candidates = []
+        for p in parts:
+            cand = ClipCandidate(
+                start=p.start,
+                end=p.end,
+                score=90,
+                hook=f"Part {p.part_number:02d}",
+                reason=f"Video to Clips part {p.part_number:02d} ({p.total_duration:.0f}s)",
+                source="video_to_clips",
+            )
+            cand.subscores = {"part_number": p.part_number, "segments": [[s.start, s.end] for s in p.segments]}
+            candidates.append(cand)
+        print(f"  Video to Clips Mode: generated {len(candidates)} sequential part(s)")
     elif config["clips"].get("pipeline"):
         # A plugin pipeline (plugins/) picks the moments in its own process;
         # titles, rendering and the library below are made as for any job.
@@ -857,12 +912,6 @@ def process_video(url: str, config: dict, db: StateDB, force: bool = False) -> l
         recap_clip = _make_recap_video(db, video.video_id, made, clip_dir, config)
         if recap_clip:
             rendered.append(recap_clip)
-
-    # Video to Clips (2-3 min) Mode: group highlights into sequential 120-180s part videos
-    if modes.is_video_to_clips(config) and made:
-        part_clips = _make_video_to_clips_parts(db, video.video_id, made, clip_dir, config)
-        if part_clips:
-            rendered.extend(part_clips)
 
     elapsed = time.monotonic() - started
     db.set_process_seconds(video.video_id, elapsed)
@@ -1668,6 +1717,26 @@ def _render_files(
     if config["clips"].get("whole") or opts.get("whole"):
         config = {**config, "clips": {**config["clips"], "whole": True, "outro": False}}
         opts["whole"] = True
+
+    # Video to Clips (2-3 min) rendering path with 40ms micro audio-crossfades
+    if candidate.source == "video_to_clips" and (candidate.subscores or {}).get("segments"):
+        from video.video_to_clips import ActiveSegment, VideoPart, render_video_part
+        part_num = int((candidate.subscores or {}).get("part_number", 1))
+        stem = f"part_{part_num:02d}"
+        final_path = clip_dir / f"{stem}.mp4"
+        clip_dir.mkdir(parents=True, exist_ok=True)
+        raw_segs = candidate.subscores.get("segments") or []
+        segs = [ActiveSegment(s[0], s[1]) for s in raw_segs]
+        part = VideoPart(
+            part_number=part_num,
+            segments=segs,
+            start=candidate.start,
+            end=candidate.end,
+            total_duration=sum(s.duration for s in segs),
+        )
+        render_video_part(source, part, final_path, config=config)
+        return final_path, json.dumps(opts)
+
     # Deterministic timestamp-based name: re-runs overwrite instead of piling up.
     stem = f"clip_{int(candidate.start):05d}-{int(candidate.end):05d}"
     final_path = clip_dir / f"{stem}.mp4"

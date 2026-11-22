@@ -1,155 +1,146 @@
 import sys
 from pathlib import Path
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from analysis.fusion import bundle_compilation_highlights, frame_compilation_window
-from analysis.visual_captioning import PROMPT_ACTION, PROMPT_RECAP, select_frame_times
-from core.modes import is_recap, is_video_to_clips
-from core.pipeline import _make_video_to_clips_parts, _make_recap_video
-from core.models import ClipCandidate, RenderedClip
+from core.modes import get_clip_mode, is_compilation, is_recap, is_video_to_clips
+from core.models import Segment
+from video.video_to_clips import (
+    ActiveSegment,
+    VideoPart,
+    find_active_segments,
+    find_dead_intervals,
+    find_snap_boundary,
+    partition_active_stream,
+)
 
 
-def test_mode_detection():
-    # Direct dict keys
-    assert is_recap({"recap": True}) is True
-    assert is_recap({"recap_mode": True}) is True
-    assert is_recap({"clips": {"recap": True}}) is True
-    assert is_recap({"clips": {"compilation": True}}) is False
-    assert is_recap({}) is False
+def test_uniform_mode_mutual_exclusivity():
+    # Direct clip_mode overrides
+    assert get_clip_mode({"clip_mode": "video_to_clips"}) == "video_to_clips"
+    assert is_video_to_clips({"clip_mode": "video_to_clips"}) is True
+    assert is_compilation({"clip_mode": "video_to_clips"}) is False
+    assert is_recap({"clip_mode": "video_to_clips"}) is False
 
-    assert is_video_to_clips({"video_to_clips": True}) is True
-    assert is_video_to_clips({"video_to_clips_mode": True}) is True
-    assert is_video_to_clips({"clips": {"video_to_clips": True}}) is True
-    assert is_video_to_clips({"clips": {"compilation": True}}) is False
-    assert is_video_to_clips({}) is False
+    assert get_clip_mode({"clip_mode": "compilation"}) == "compilation"
+    assert is_compilation({"clip_mode": "compilation"}) is True
+    assert is_video_to_clips({"clip_mode": "compilation"}) is False
+
+    assert get_clip_mode({"clip_mode": "recap"}) == "recap"
+    assert is_recap({"clip_mode": "recap"}) is True
+    assert is_video_to_clips({"clip_mode": "recap"}) is False
+
+    assert get_clip_mode({"clip_mode": "standard"}) == "standard"
+    assert is_compilation({"clip_mode": "standard"}) is False
+    assert is_video_to_clips({"clip_mode": "standard"}) is False
+
+    # Backward compatibility with boolean flags
+    assert get_clip_mode({"video_to_clips": True}) == "video_to_clips"
+    assert get_clip_mode({"compilation": True}) == "compilation"
+    assert get_clip_mode({"recap": True}) == "recap"
+    assert get_clip_mode({}) == "standard"
 
 
-def test_recap_prompt_and_frame_window():
-    # Verify prompt contains walkthrough/tutorial/secret items
-    assert "tutorial step" in PROMPT_RECAP.lower()
-    assert "secret item" in PROMPT_RECAP.lower()
-    assert "easter egg" in PROMPT_RECAP.lower()
-    assert "map location" in PROMPT_RECAP.lower()
+def test_find_dead_intervals_and_active_segments():
+    # Simulate 60 seconds video:
+    # 0s - 15s: Active movement & audio
+    # 15s - 25s: Frozen frame (motion = 0.1, duration 10s > 4.5s) -> DEAD
+    # 25s - 35s: Active DIY / repair / gameplay
+    # 35s - 38s: Short pause (motion = 0.2, duration 3s < 4.5s) -> NOT DEAD (kept)
+    # 38s - 45s: Active
+    # 45s - 55s: Static menu / silence (motion = 1.0, loudness = 0.001, duration 10s > 4.5s) -> DEAD
+    # 55s - 60s: Active
+    duration = 60.0
+    motion = np.full(60, 8.0, dtype=np.float32)
+    loudness = np.full(60, 0.05, dtype=np.float32)
 
-    # Tutorial steps at 10.0s, 14.0s (within 6.0s merge gap) and at 40.0s
-    events = [
-        (10.0, "VISUAL: Map location revealed on screen"),
-        (14.0, "VISUAL: Secret key item picked up"),
-        (40.0, "VISUAL: Puzzle door opened"),
+    # Dead block 1: frozen frame 15-25s
+    motion[15:25] = 0.1
+
+    # Short block 35-38s (only 3s, below 4.5s threshold)
+    motion[35:38] = 0.2
+
+    # Dead block 2: static menu + silence 45-55s
+    motion[45:55] = 1.0
+    loudness[45:55] = 0.001
+
+    visual_raw = {"motion": motion}
+    audio_raw = {"loudness": loudness}
+
+    dead = find_dead_intervals(duration, visual_raw, audio_raw, min_dead_duration=4.5)
+    assert len(dead) == 2, f"Expected 2 dead blocks, got {dead}"
+    assert dead[0] == (15.0, 25.0)
+    assert dead[1] == (45.0, 55.0)
+
+    # Active segments with 0.5s safety buffer around dead cuts
+    active = find_active_segments(
+        duration,
+        visual_raw,
+        audio_raw,
+        min_dead_duration=4.5,
+        buffer_seconds=0.5,
+        merge_gap=3.0,
+    )
+    # First dead period 15-25s cut: leaves buffer up to 15.5s, resumes at 24.5s
+    # Short pause 35-38s was kept, so 24.5s to 45.5s is one continuous active segment
+    # Second dead period 45-55s cut: resumes at 54.5s to 60s
+    assert len(active) == 3, f"Expected 3 active segments, got {len(active)}: {active}"
+    assert abs(active[0].end - 15.5) <= 0.2
+    assert abs(active[1].start - 24.5) <= 0.2
+    assert abs(active[1].end - 45.5) <= 0.2
+    assert abs(active[2].start - 54.5) <= 0.2
+
+
+def test_elastic_snap_boundary_and_partitioning():
+    # Simulate a long video with active segments totaling 400s:
+    # Seg 1: 0s - 200s (200s)
+    # Seg 2: 210s - 410s (200s)
+    active = [ActiveSegment(0.0, 200.0), ActiveSegment(210.0, 410.0)]
+
+    # Transcript with sentences ending at 172.0s ("...and that is how to fix the engine.")
+    # and at 188.0s ("Now let's replace the spark plug.")
+    transcripts = [
+        Segment(160.0, 172.0, "and that is how to fix the engine."),
+        Segment(174.0, 188.0, "Now let's replace the spark plug."),
     ]
 
-    bundled = bundle_compilation_highlights(
-        events,
-        min_duration=5.0,
-        max_duration=20.0,
-        merge_gap_seconds=6.0,
-        pre_climax_seconds=2.5,
-        post_climax_seconds=3.0,
-        video_end=100.0,
+    parts = partition_active_stream(
+        active,
+        transcript_segments=transcripts,
+        target_part_duration=180.0,
+        elastic_slack=15.0,
+        min_tail_duration=45.0,
     )
 
-    assert len(bundled) == 2, f"Expected 2 recap step clusters, got {len(bundled)}"
-
-    # First cluster: 10s and 14s merged
-    s1, e1, c1 = bundled[0]
-    assert len(c1) == 2
-    # Lead-in of 2.5s -> start <= 10.0 - 2.5 = 7.5s
-    assert s1 <= 7.5, f"Expected s1 <= 7.5, got {s1}"
-    # Follow-through of 3.0s -> end >= 14.0 + 3.0 = 17.0s
-    assert e1 >= 17.0, f"Expected e1 >= 17.0, got {e1}"
-    assert 5.0 <= (e1 - s1) <= 20.0, f"Duration {e1 - s1} out of bounds for recap step"
-
-    # Second cluster: 40s
-    s2, e2, c2 = bundled[1]
-    assert len(c2) == 1
-    assert s2 <= 40.0 - 2.5
-    assert e2 >= 40.0 + 3.0
-    assert 5.0 <= (e2 - s2) <= 20.0
+    # 400s total active divided into ~2 parts (~172s and ~228s)
+    assert len(parts) >= 2, f"Expected at least 2 parts, got {len(parts)}"
+    p1 = parts[0]
+    # First part should snap to sentence ending at 172.0s
+    assert abs(p1.end - 172.0) <= 1.0, f"Expected snap near 172.0s, got {p1.end}"
 
 
-def test_video_to_clips_scaling_and_window():
-    # Long video (e.g. 5400s = 90 min)
-    times = select_frame_times(
-        duration=5400.0,
-        visual_raw=None,
-        interval_seconds=8.0,
-        max_frames=1200,
-    )
-    # 5400s / 8.0s ~ 675 frames, well within max_frames: 1200
-    assert len(times) > 600, f"Expected >600 frames for 90m video, got {len(times)}"
-    assert times[0] == 0.0
-    assert times[-1] >= 5390.0
+def test_no_mini_tail_under_45s():
+    # Active duration is 210s total (target 180s):
+    # Remainder after 180s is only 30s (< 45s min_tail_duration).
+    # Must NOT create a 30s mini part! Instead, merge everything into 1 part of 210s.
+    active = [ActiveSegment(0.0, 210.0)]
 
-    # Highlights with 3.5s lead-in, 5.0s follow-through, 12.0s merge gap
-    events = [
-        (100.0, "VISUAL: Big explosion in heist"),
-        (108.0, "VISUAL: Car getaway police chase"),
-        (250.0, "VISUAL: Plane parachute jump"),
-    ]
-
-    bundled = bundle_compilation_highlights(
-        events,
-        min_duration=15.0,
-        max_duration=60.0,
-        merge_gap_seconds=12.0,
-        pre_climax_seconds=3.5,
-        post_climax_seconds=5.0,
-        video_end=5400.0,
+    parts = partition_active_stream(
+        active,
+        transcript_segments=[],
+        target_part_duration=180.0,
+        elastic_slack=15.0,
+        min_tail_duration=45.0,
     )
 
-    assert len(bundled) == 2
-    s1, e1, c1 = bundled[0]
-    assert len(c1) == 2
-    assert s1 <= 100.0 - 3.5
-    assert e1 >= 108.0 + 5.0
-    assert 15.0 <= (e1 - s1) <= 60.0
-
-
-def test_video_to_clips_partitioning():
-    # Simulate clips totaling ~350 seconds
-    # Should partition into 2 parts of ~175s each (target 120-180s)
-    clips = []
-    t = 0.0
-    for i in range(14):
-        dur = 25.0
-        c = ClipCandidate(start=t, end=t + dur, score=85, hook=f"Clip {i}")
-        clips.append(RenderedClip(source_video_id="test_vid", candidate=c, path=Path(f"clip_{i}.mp4")))
-        t += dur + 5.0
-
-    # Test partitioning logic
-    batches = []
-    cur_batch = []
-    cur_dur = 0.0
-    min_part = 120.0
-    max_part = 180.0
-
-    for clip in clips:
-        dur = clip.candidate.end - clip.candidate.start
-        if not cur_batch:
-            cur_batch.append(clip)
-            cur_dur += dur
-            continue
-        if (cur_dur + dur > max_part and cur_dur >= min_part) or (cur_dur + dur > max_part + 30.0):
-            batches.append(cur_batch)
-            cur_batch = [clip]
-            cur_dur = dur
-        else:
-            cur_batch.append(clip)
-            cur_dur += dur
-    if cur_batch:
-        batches.append(cur_batch)
-
-    # 14 clips of 25s = 350s total -> exactly 2 batches of ~175s each
-    assert len(batches) == 2, f"Expected 2 parts, got {len(batches)}"
-    b1_dur = sum(c.candidate.end - c.candidate.start for c in batches[0])
-    b2_dur = sum(c.candidate.end - c.candidate.start for c in batches[1])
-    assert 120.0 <= b1_dur <= 180.0, f"Batch 1 duration {b1_dur} out of bounds"
-    assert 120.0 <= b2_dur <= 180.0, f"Batch 2 duration {b2_dur} out of bounds"
+    assert len(parts) == 1, f"Expected 1 part due to tail <45s merge, got {len(parts)}"
+    assert abs(parts[0].total_duration - 210.0) <= 0.1
 
 
 if __name__ == "__main__":
-    test_mode_detection()
-    test_recap_prompt_and_frame_window()
-    test_video_to_clips_scaling_and_window()
-    test_video_to_clips_partitioning()
-    print("ALL RECAP AND VIDEO TO CLIPS TESTS PASSED!")
+    test_uniform_mode_mutual_exclusivity()
+    test_find_dead_intervals_and_active_segments()
+    test_elastic_snap_boundary_and_partitioning()
+    test_no_mini_tail_under_45s()
+    print("ALL RONDE 1 VIDEO TO CLIPS TESTS PASSED SUCCESSFULLY!")

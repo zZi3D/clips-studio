@@ -480,6 +480,8 @@ export interface Job {
   updated_at: string
 }
 
+export type ClipMode = 'standard' | 'compilation' | 'recap' | 'video_to_clips'
+
 /** One video's processing settings, snapshotted when it entered the queue.
  *  Editing one queued video's options can never reach another — each job
  *  owns its own copy. */
@@ -496,6 +498,8 @@ export interface JobOptions {
   /** Gaming / Reaction: the streamer's webcam over the game or the video being
    *  reacted to (gaming/). Not combined with vertical_live, podcast or longform. */
   gaming?: boolean
+  /** Uniform mutually exclusive clip mode selector */
+  clip_mode?: ClipMode
   /** Compilation Mode: extract each action highlight without hard clip caps,
    *  bounded by scene cuts and post-climax seconds. */
   compilation?: boolean

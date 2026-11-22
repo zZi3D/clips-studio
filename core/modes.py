@@ -52,6 +52,27 @@ def is_vertical_live(config_or_opts: dict | None) -> bool:
     return bool(isinstance(clips, dict) and clips.get("vertical_live"))
 
 
+def get_clip_mode(config_or_opts: dict | None) -> str:
+    """Return the active mutually exclusive clip mode:
+    'standard' | 'compilation' | 'recap' | 'video_to_clips'"""
+    if not config_or_opts:
+        return "standard"
+    mode = config_or_opts.get("clip_mode")
+    if not mode:
+        clips = config_or_opts.get("clips")
+        if isinstance(clips, dict):
+            mode = clips.get("clip_mode")
+    if mode in ("standard", "compilation", "recap", "video_to_clips"):
+        return mode
+    if is_video_to_clips(config_or_opts):
+        return "video_to_clips"
+    if is_recap(config_or_opts):
+        return "recap"
+    if is_compilation(config_or_opts):
+        return "compilation"
+    return "standard"
+
+
 def is_compilation(config_or_opts: dict | None) -> bool:
     """Compilation Mode: optimized for compilation videos (fails, stunts,
     glitches, highlight reels). Extracts individual action moments without
@@ -59,6 +80,9 @@ def is_compilation(config_or_opts: dict | None) -> bool:
     action, and extends end 4-7s after climax bounded by the next scene cut."""
     if not config_or_opts:
         return False
+    mode = config_or_opts.get("clip_mode") or (config_or_opts.get("clips") or {}).get("clip_mode")
+    if mode:
+        return mode == "compilation"
     if config_or_opts.get("compilation") or config_or_opts.get("compilation_mode"):
         return True
     clips = config_or_opts.get("clips")
@@ -71,6 +95,9 @@ def is_recap(config_or_opts: dict | None) -> bool:
     and items, then stitches them into a single recap.mp4."""
     if not config_or_opts:
         return False
+    mode = config_or_opts.get("clip_mode") or (config_or_opts.get("clips") or {}).get("clip_mode")
+    if mode:
+        return mode == "recap"
     if config_or_opts.get("recap") or config_or_opts.get("recap_mode"):
         return True
     clips = config_or_opts.get("clips")
@@ -78,11 +105,14 @@ def is_recap(config_or_opts: dict | None) -> bool:
 
 
 def is_video_to_clips(config_or_opts: dict | None) -> bool:
-    """Video to Clips (2-3 min) Mode: optimized for 60 to 90+ minute videos,
-    scanning the entire video timeline and grouping all highlights into sequential
-    multi-minute parts (part_01.mp4, part_02.mp4, etc.)."""
+    """Video to Clips (2-3 min) Mode: optimized for 60 to 300+ minute videos,
+    scanning the entire video timeline and grouping all active content into sequential
+    multi-minute parts (part_01.mp4, part_02.mp4, etc.) without dead air."""
     if not config_or_opts:
         return False
+    mode = config_or_opts.get("clip_mode") or (config_or_opts.get("clips") or {}).get("clip_mode")
+    if mode:
+        return mode == "video_to_clips"
     if config_or_opts.get("video_to_clips") or config_or_opts.get("video_to_clips_mode"):
         return True
     clips = config_or_opts.get("clips")

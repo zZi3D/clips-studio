@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
-import type { CaptionStyle, JobOptions, PipelineChoice } from '../../lib/types'
+import type { CaptionStyle, ClipMode, JobOptions, PipelineChoice } from '../../lib/types'
 import CaptionStyleControls, { DEFAULT_CAPTION_STYLE } from '../CaptionStyleControls'
 import BrandingEditor, { setWatermarkEnabled, watermarkSelection } from '../WatermarkCard'
 import GamingLayoutEditor from '../GamingLayoutEditor'
@@ -63,15 +63,45 @@ interface Slot {
   sourceUrl?: string
 }
 
+export function getSlotClipMode(o: JobOptions): ClipMode {
+  if (o.clip_mode) return o.clip_mode
+  if (o.video_to_clips) return 'video_to_clips'
+  if (o.recap) return 'recap'
+  if (o.compilation) return 'compilation'
+  return 'standard'
+}
+
+export function setSlotClipMode(o: JobOptions, mode: ClipMode): JobOptions {
+  const next: JobOptions = { ...o, clip_mode: mode }
+  if (mode === 'compilation') {
+    next.compilation = true
+    delete next.recap
+    delete next.video_to_clips
+  } else if (mode === 'recap') {
+    next.recap = true
+    delete next.compilation
+    delete next.video_to_clips
+  } else if (mode === 'video_to_clips') {
+    next.video_to_clips = true
+    delete next.compilation
+    delete next.recap
+  } else {
+    delete next.compilation
+    delete next.recap
+    delete next.video_to_clips
+  }
+  try {
+    localStorage.setItem('generate-clip-mode', mode)
+  } catch {}
+  return next
+}
+
 type ToggleKey =
   | 'captions'
   | 'long_clips'
   | 'podcast'
   | 'vertical_live'
   | 'gaming'
-  | 'compilation'
-  | 'recap'
-  | 'video_to_clips'
   | 'sport'
   | 'longform'
   | 'pipeline'
@@ -120,27 +150,6 @@ const TOGGLES: { key: ToggleKey; label: string; hint: string; title: string }[] 
     hint: '(split-screen)',
     title:
       'For game streams and reaction videos: the streamer’s webcam in the top half, the game (or the video they’re reacting to) in the bottom half. With no webcam, the game fills the screen. The streamer is whoever is talking, never the biggest face. Fix a clip in the editor by drawing the webcam and game area.'
-  },
-  {
-    key: 'compilation',
-    label: 'Compilation',
-    hint: '(highlights/fails)',
-    title:
-      'For compilation videos (funny moments, GTA fails, stunt reels, glitch clips). Clips every qualifying action highlight without an arbitrary limit, cuts cleanly on scene transitions, and preserves the full climax and aftermath.'
-  },
-  {
-    key: 'recap',
-    label: 'Recap',
-    hint: '(Tutorial)',
-    title:
-      'For silent tutorials, walkthroughs and easter eggs with steps on screen. Captures tutorial steps, map locations and items, and stitches them into a single recap.mp4.'
-  },
-  {
-    key: 'video_to_clips',
-    label: 'Video to Clips',
-    hint: '(2-3 min)',
-    title:
-      'For long gameplay videos (60 to 90+ min). Scans the full video and groups all qualifying highlights into successive 2-3 minute continuous parts (part_01.mp4, part_02.mp4, etc.).'
   },
   {
     key: 'sport',
@@ -317,9 +326,6 @@ function remember(key: ToggleKey, on: boolean, mode?: string): void {
     else if (key === 'podcast') localStorage.setItem(PREF.podcast, String(on))
     else if (key === 'vertical_live') localStorage.setItem(PREF.vertical_live, String(on))
     else if (key === 'gaming') localStorage.setItem(PREF.gaming, String(on))
-    else if (key === 'compilation') localStorage.setItem(PREF.compilation, String(on))
-    else if (key === 'recap') localStorage.setItem(PREF.recap, String(on))
-    else if (key === 'video_to_clips') localStorage.setItem(PREF.video_to_clips, String(on))
     else if (key === 'sport') localStorage.setItem(PREF.sport, String(on))
     else if (key === 'edit' && !on) localStorage.removeItem(PREF.edit) // on, rememberEdit keeps the list
     else if (key === 'longform') {
@@ -340,7 +346,7 @@ function remember(key: ToggleKey, on: boolean, mode?: string): void {
  *  in however often the box was unticked. One reader, not two. */
 export function seedOptions(): JobOptions {
   const wm = watermarkSelection()
-  const o: JobOptions = {
+  let o: JobOptions = {
     captions: localStorage.getItem(PREF.captions) !== 'false',
     caption_style: savedStyle()
   }
@@ -362,14 +368,9 @@ export function seedOptions(): JobOptions {
   if (localStorage.getItem(PREF.gaming) === 'true' && !o.podcast && !o.longform && !o.vertical_live) {
     o.gaming = true
   }
-  if (localStorage.getItem(PREF.compilation) === 'true') {
-    o.compilation = true
-  }
-  if (localStorage.getItem(PREF.recap) === 'true') {
-    o.recap = true
-  }
-  if (localStorage.getItem(PREF.video_to_clips) === 'true') {
-    o.video_to_clips = true
+  const savedClipMode = (localStorage.getItem('generate-clip-mode') as ClipMode) || 'standard'
+  if (savedClipMode && savedClipMode !== 'standard') {
+    o = setSlotClipMode(o, savedClipMode)
   }
   // Sports too: Podcast and Gaming each score the video their own way, and
   // win over it.
@@ -701,15 +702,6 @@ export default function AddVideos({ onAdded }: { onAdded?: () => void }): JSX.El
         delete next.gaming_layout
         delete next.gaming_remember
       }
-    } else if (key === 'compilation') {
-      if (on) next.compilation = true
-      else delete next.compilation
-    } else if (key === 'recap') {
-      if (on) next.recap = true
-      else delete next.recap
-    } else if (key === 'video_to_clips') {
-      if (on) next.video_to_clips = true
-      else delete next.video_to_clips
     } else if (key === 'sport') {
       const start = on ? (next.sport ?? startingSport(offered)) : null
       if (start) {
@@ -880,9 +872,6 @@ export default function AddVideos({ onAdded }: { onAdded?: () => void }): JSX.El
     if (key === 'podcast') return Boolean(o.podcast)
     if (key === 'vertical_live') return Boolean(o.vertical_live)
     if (key === 'gaming') return Boolean(o.gaming)
-    if (key === 'compilation') return Boolean(o.compilation)
-    if (key === 'recap') return Boolean(o.recap)
-    if (key === 'video_to_clips') return Boolean(o.video_to_clips)
     if (key === 'sport') return Boolean(o.sport)
     if (key === 'longform') return Boolean(o.longform)
     if (key === 'pipeline') return Boolean(o.pipeline)
@@ -1055,6 +1044,59 @@ export default function AddVideos({ onAdded }: { onAdded?: () => void }): JSX.El
                 {t('Caption style')} {openStyle === slot.key ? '▾' : '▸'}
               </button>
 
+              {/* Uniform mutually exclusive Mode Selector */}
+              {(() => {
+                const currentMode = getSlotClipMode(slot.options)
+                return (
+                  <div className="flex items-center gap-1 bg-[#1E293B]/90 p-0.5 rounded-lg border border-[#334155]/80 shrink-0 text-xs">
+                    <span className="text-slate-400 font-medium px-1.5 select-none">{t('Mode')}:</span>
+                    <button
+                      type="button"
+                      className={`px-2 py-0.5 rounded font-medium transition-all ${
+                        currentMode === 'standard'
+                          ? 'bg-[#38BDF8] text-slate-950 font-semibold shadow-sm'
+                          : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                      }`}
+                      onClick={() => replaceOptions(slot.key, setSlotClipMode(slot.options, 'standard'))}
+                    >
+                      {t('Standard')}
+                    </button>
+                    <button
+                      type="button"
+                      className={`px-2 py-0.5 rounded font-medium transition-all ${
+                        currentMode === 'compilation'
+                          ? 'bg-[#38BDF8] text-slate-950 font-semibold shadow-sm'
+                          : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                      }`}
+                      title={t('Compilation: clips every qualifying action highlight without arbitrary limit, with wide margins.')}
+                      onClick={() => replaceOptions(slot.key, setSlotClipMode(slot.options, 'compilation'))}
+                    >
+                      {t('Compilation')}
+                    </button>
+                    <button
+                      type="button"
+                      disabled
+                      className="px-2 py-0.5 rounded font-medium text-slate-500 opacity-60 cursor-not-allowed"
+                      title={t('Recap (How-To): captures on-screen tutorial steps and stitches into recap.mp4 (Round 2)')}
+                    >
+                      {t('Recap (How-To)')}
+                    </button>
+                    <button
+                      type="button"
+                      className={`px-2 py-0.5 rounded font-medium transition-all ${
+                        currentMode === 'video_to_clips'
+                          ? 'bg-[#38BDF8] text-slate-950 font-semibold shadow-sm'
+                          : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                      }`}
+                      title={t('Video to Clips (2-3 min): divides long 90-300+ min recordings into continuous 2-3 min parts without dead air.')}
+                      onClick={() => replaceOptions(slot.key, setSlotClipMode(slot.options, 'video_to_clips'))}
+                    >
+                      {t('Video to Clips (2-3 min)')}
+                    </button>
+                  </div>
+                )
+              })()}
+
               {TOGGLES.map((tg) => {
                 // Sports shows once the engine says it has a sport (and stays
                 // while it's on, so it can always be turned off).
@@ -1132,6 +1174,21 @@ export default function AddVideos({ onAdded }: { onAdded?: () => void }): JSX.El
                 </button>
               )}
             </div>
+
+            {getSlotClipMode(slot.options) === 'video_to_clips' && (
+              <div className="card mt-2 py-2 px-3 bg-[#0F172A]/70 border border-[#38BDF8]/30 rounded-lg text-xs space-y-1">
+                <div className="font-semibold text-[#38BDF8] flex items-center gap-1.5">
+                  <span>Video to Clips (2-3 min)</span>
+                  <span className="text-[10px] text-muted font-normal">({t('Full video coverage')})</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 text-slate-300">
+                  <div>✓ {t('Full video coverage (90–300+ min)')}</div>
+                  <div>✓ {t('Removes static screens, menus & dead air (>4.5s)')}</div>
+                  <div>✓ {t('Skips silence with low motion')}</div>
+                  <div>✓ {t('Smart elastic splits into 2–3 min parts (part_01, part_02...)')}</div>
+                </div>
+              </div>
+            )}
 
             {slot.options.sport && offered.length > 0 && (
               <div className="flex items-center gap-3 flex-wrap mt-2">

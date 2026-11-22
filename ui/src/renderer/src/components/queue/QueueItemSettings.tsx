@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
-import type { CaptionStyle, JobOptions, PipelineChoice, SportOption } from '../../lib/types'
+import type { CaptionStyle, ClipMode, JobOptions, PipelineChoice, SportOption } from '../../lib/types'
 import CaptionStyleControls, { DEFAULT_CAPTION_STYLE } from '../CaptionStyleControls'
 import SportFields from '../SportFields'
 import { sportForVertical, startingSport, useSports, verticalSports, verticalValue } from '../../lib/sports'
@@ -64,9 +64,9 @@ export default function QueueItemSettings({
   const [verticalLive, setVerticalLive] = useState(Boolean(s.vertical_live))
   const [gamingScoring, setGamingScoring] = useState(Boolean(s.gaming_scoring))
   const [gaming, setGaming] = useState(Boolean(s.gaming))
-  const [compilation, setCompilation] = useState(Boolean(s.compilation))
-  const [recap, setRecap] = useState(Boolean(s.recap))
-  const [videoToClips, setVideoToClips] = useState(Boolean(s.video_to_clips))
+  const [clipMode, setClipMode] = useState<ClipMode>(
+    s.clip_mode ?? (s.video_to_clips ? 'video_to_clips' : s.recap ? 'recap' : s.compilation ? 'compilation' : 'standard')
+  )
   const [sport, setSport] = useState<SportOption | null>(s.sport ?? null)
   const sports = useSports() ?? []
   const [longform, setLongform] = useState(Boolean(s.longform))
@@ -116,12 +116,19 @@ export default function QueueItemSettings({
       else clear.push('gaming_scoring')
       if (gaming) patch.gaming = true
       else clear.push('gaming', 'gaming_layout', 'gaming_remember')
-      if (compilation) patch.compilation = true
-      else clear.push('compilation')
-      if (recap) patch.recap = true
-      else clear.push('recap')
-      if (videoToClips) patch.video_to_clips = true
-      else clear.push('video_to_clips')
+      patch.clip_mode = clipMode
+      if (clipMode === 'compilation') {
+        patch.compilation = true
+        clear.push('recap', 'video_to_clips')
+      } else if (clipMode === 'recap') {
+        patch.recap = true
+        clear.push('compilation', 'video_to_clips')
+      } else if (clipMode === 'video_to_clips') {
+        patch.video_to_clips = true
+        clear.push('compilation', 'recap')
+      } else {
+        clear.push('compilation', 'recap', 'video_to_clips')
+      }
       if (sport) patch.sport = sport
       else clear.push('sport')
       if (longform) patch.longform = { mode: longformMode, ...(longformShorts ? { shorts: true } : {}) }
@@ -304,33 +311,54 @@ export default function QueueItemSettings({
           },
           'Game streams and reaction videos: the streamer’s webcam in the top half, the game or the video they’re reacting to in the bottom half. With no webcam, the game fills the screen.'
         )}
-        {toggle(
-          'Compilation',
-          '(highlights/fails)',
-          compilation,
-          (on) => {
-            setCompilation(on)
-          },
-          'For compilation videos: clips every qualifying action highlight without an arbitrary limit, cuts cleanly on scene transitions, and preserves the full climax and aftermath.'
-        )}
-        {toggle(
-          'Recap',
-          '(Tutorial)',
-          recap,
-          (on) => {
-            setRecap(on)
-          },
-          'For silent tutorials, walkthroughs and easter eggs: captures on-screen steps, map locations and items, then stitches them into a single recap.mp4.'
-        )}
-        {toggle(
-          'Video to Clips',
-          '(2-3 min)',
-          videoToClips,
-          (on) => {
-            setVideoToClips(on)
-          },
-          'For long gameplay videos (60-90+ min): extracts highlights into sequential 2-3 minute videos (part_01.mp4, part_02.mp4, etc.).'
-        )}
+        <div className="card flex flex-col gap-2 p-3 bg-slate-900/60 border border-slate-800 rounded-lg">
+          <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">{t('Processing Mode')}</span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                clipMode === 'standard' ? 'bg-[#38BDF8] text-slate-950 font-semibold shadow-sm' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+              onClick={() => setClipMode('standard')}
+            >
+              {t('Standard')}
+            </button>
+            <button
+              type="button"
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                clipMode === 'compilation' ? 'bg-[#38BDF8] text-slate-950 font-semibold shadow-sm' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+              onClick={() => setClipMode('compilation')}
+            >
+              {t('Compilation')}
+            </button>
+            <button
+              type="button"
+              disabled
+              className="px-3 py-1.5 rounded-md text-xs font-medium bg-slate-800/50 text-slate-500 opacity-60 cursor-not-allowed"
+              title={t('Recap (How-To) will be activated in Round 2')}
+            >
+              {t('Recap (How-To)')}
+            </button>
+            <button
+              type="button"
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                clipMode === 'video_to_clips' ? 'bg-[#38BDF8] text-slate-950 font-semibold shadow-sm' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+              onClick={() => setClipMode('video_to_clips')}
+            >
+              {t('Video to Clips (2-3 min)')}
+            </button>
+          </div>
+          {clipMode === 'video_to_clips' && (
+            <div className="mt-1 text-[11px] text-slate-400 space-y-0.5 border-t border-slate-800/80 pt-1.5">
+              <div>✓ {t('Full video coverage (90–300+ min)')}</div>
+              <div>✓ {t('Removes static screens, menus & dead air (>4.5s)')}</div>
+              <div>✓ {t('Skips silence with low motion')}</div>
+              <div>✓ {t('Smart elastic splits into 2–3 min parts (part_01, part_02...)')}</div>
+            </div>
+          )}
+        </div>
         {(sports.length > 0 || sport) &&
           toggle(
             'Sports',

@@ -55,6 +55,7 @@ class JobIn(BaseModel):
     podcast: bool | None = None   # multi-cam podcast: letterbox, no subject tracking
     vertical_live: bool | None = None  # an already-composed 9:16 live: keep its layout, no face tracking
     gaming: bool | None = None  # Gaming / Split-Screen: webcam over the game, or the game alone
+    clip_mode: str | None = None  # Uniform clip mode: standard | compilation | recap | video_to_clips
     compilation: bool | None = None  # Compilation Mode: cut-bounded action framing, no clip cap
     recap: bool | None = None  # Recap (Tutorial) Mode: walkthroughs/easter eggs stitched into recap.mp4
     video_to_clips: bool | None = None  # Video to Clips (2-3 min) Mode: long gameplay divided into multi-minute parts
@@ -237,6 +238,7 @@ class LocalVideoIn(BaseModel):
     podcast: bool | None = None  # multi-cam podcast: letterbox, no subject tracking
     vertical_live: bool | None = None  # an already-composed 9:16 live: keep its layout, no face tracking
     gaming: bool | None = None  # Gaming / Split-Screen: webcam over the game, or the game alone
+    clip_mode: str | None = None  # Uniform clip mode: standard | compilation | recap | video_to_clips
     compilation: bool | None = None  # Compilation Mode: cut-bounded action framing, no clip cap
     recap: bool | None = None  # Recap (Tutorial) Mode: walkthroughs/easter eggs stitched into recap.mp4
     video_to_clips: bool | None = None  # Video to Clips (2-3 min) Mode: long gameplay divided into multi-minute parts
@@ -507,12 +509,24 @@ def _process_options(body, into: dict | None = None, data_dir: Path | None = Non
         payload["vertical_live"] = True
     if getattr(body, "gaming", None):
         payload["gaming"] = True
-    if getattr(body, "compilation", None):
-        payload["compilation"] = True
-    if getattr(body, "recap", None):
-        payload["recap"] = True
-    if getattr(body, "video_to_clips", None):
-        payload["video_to_clips"] = True
+
+    # Mutually exclusive clip modes
+    c_mode = getattr(body, "clip_mode", None)
+    if not c_mode:
+        if getattr(body, "video_to_clips", None):
+            c_mode = "video_to_clips"
+        elif getattr(body, "recap", None):
+            c_mode = "recap"
+        elif getattr(body, "compilation", None):
+            c_mode = "compilation"
+        else:
+            c_mode = "standard"
+
+    payload["clip_mode"] = c_mode
+    payload["compilation"] = (c_mode == "compilation")
+    payload["recap"] = (c_mode == "recap")
+    payload["video_to_clips"] = (c_mode == "video_to_clips")
+
     if getattr(body, "gaming_scoring", None):
         # Score as a gaming stream (analysis/gaming.py) with whatever layout
         # the video gets, e.g. an already-vertical live of a game.
