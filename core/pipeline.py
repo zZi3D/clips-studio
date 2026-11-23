@@ -574,6 +574,7 @@ def process_video(url: str, config: dict, db: StateDB, force: bool = False) -> l
             buffer_seconds=0.5,
             merge_gap=3.0,
         )
+        custom_ch = config.get("clips", {}).get("custom_chapters")
         parts = partition_active_stream(
             active_segs,
             transcript_segments=segments,
@@ -583,18 +584,27 @@ def process_video(url: str, config: dict, db: StateDB, force: bool = False) -> l
             target_part_duration=target_dur,
             elastic_slack=slack,
             min_tail_duration=min_tail,
+            custom_chapters=custom_ch,
         )
         candidates = []
         for p in parts:
+            if p.chapter_title:
+                hook = f"Part {p.part_number:02d}: {p.chapter_title}"
+            else:
+                hook = f"Part {p.part_number:02d}"
             cand = ClipCandidate(
                 start=p.start,
                 end=p.end,
                 score=90,
-                hook=f"Part {p.part_number:02d}",
+                hook=hook,
                 reason=f"Video to Clips part {p.part_number:02d} ({p.total_duration:.0f}s)",
                 source="video_to_clips",
             )
-            cand.subscores = {"part_number": p.part_number, "segments": [[s.start, s.end] for s in p.segments]}
+            cand.subscores = {
+                "part_number": p.part_number,
+                "chapter_title": p.chapter_title,
+                "segments": [[s.start, s.end] for s in p.segments],
+            }
             candidates.append(cand)
         print(f"  Video to Clips Mode: generated {len(candidates)} sequential part(s)")
     elif config["clips"].get("pipeline"):
@@ -704,19 +714,31 @@ def process_video(url: str, config: dict, db: StateDB, force: bool = False) -> l
         / _safe_name(video.channel, "unknown-channel")
         / f"{_safe_name(video.title, video.video_id)} [{video.video_id}]"
     )
-    # Titles/descriptions/hashtags for ALL clips in a few batched LLM calls
-    # (one call per clip made long streams crawl through analysis).
-    print(f"      Writing titles & hashtags for {len(candidates)} clip(s) (batched)...")
-    # A sport's own rules for its clips' titles (basketball: which player to name).
-    title_rules = getattr(sport_profile, "title_rules", None) if sport_profile is not None else None
-    metas = generate_metadata_batch(
-        candidates, segments, video.title, llm,
-        creator_context=(creator_ctx.summary if creator_ctx else ""),
-        **({"rules": title_rules()} if title_rules is not None else {}),
-    )
-    if whole:
-        for meta in metas:
-            meta.title = video.title
+    if modes.is_video_to_clips(config):
+        from analysis.metadata import ClipMetadata
+        metas = []
+        for c in candidates:
+            p_num = int((c.subscores or {}).get("part_number", 1))
+            ch_title = (c.subscores or {}).get("chapter_title")
+            if ch_title:
+                t_str = f"{video.title} - Part {p_num:02d}: {ch_title}"
+            else:
+                t_str = f"{video.title} - Part {p_num:02d}"
+            metas.append(ClipMetadata(title=t_str, description=c.reason or f"Part {p_num:02d} of {video.title}", hashtags=["#clips", "#gameplay"]))
+    else:
+        # Titles/descriptions/hashtags for ALL clips in a few batched LLM calls
+        # (one call per clip made long streams crawl through analysis).
+        print(f"      Writing titles & hashtags for {len(candidates)} clip(s) (batched)...")
+        # A sport's own rules for its clips' titles (basketball: which player to name).
+        title_rules = getattr(sport_profile, "title_rules", None) if sport_profile is not None else None
+        metas = generate_metadata_batch(
+            candidates, segments, video.title, llm,
+            creator_context=(creator_ctx.summary if creator_ctx else ""),
+            **({"rules": title_rules()} if title_rules is not None else {}),
+        )
+        if whole:
+            for meta in metas:
+                meta.title = video.title
     # ...and its check of them against the game (basketball: who scored, who
     # leads): the ones that get it wrong are written again with these rules.
     check_titles = getattr(sport_profile, "check_titles", None) if sport_profile is not None else None
@@ -1720,8 +1742,9 @@ def _render_files(
 
     # Video to Clips (2-3 min) rendering path with 40ms micro audio-crossfades
     if candidate.source == "video_to_clips" and (candidate.subscores or {}).get("segments"):
-        from video.video_to_clips import ActiveSegment, VideoPart, render_video_part
+        from video.video_to_clips import ActiveSegment, VideoPart, build_part_captions, render_video_part
         part_num = int((candidate.subscores or {}).get("part_number", 1))
+        ch_title = (candidate.subscores or {}).get("chapter_title")
         stem = f"part_{part_num:02d}"
         final_path = clip_dir / f"{stem}.mp4"
         clip_dir.mkdir(parents=True, exist_ok=True)
@@ -1733,8 +1756,26 @@ def _render_files(
             start=candidate.start,
             end=candidate.end,
             total_duration=sum(s.duration for s in segs),
+            chapter_title=ch_title,
         )
-        render_video_part(source, part, final_path, config=config)
+        ass_path = None
+        if config["clips"].get("captions"):
+            caption_style = _plain_caption_style(opts.get("caption_style") or config["clips"].get("caption_style"))
+            is_longform = bool(config.get("clips", {}).get("longform"))
+            canvas = (1920, 1080) if is_longform else (1080, 1920)
+            ass_path = build_part_captions(
+                segments,
+                part,
+                clip_dir / f"{stem}.ass",
+                style=caption_style,
+                canvas=canvas,
+                language=content_language,
+            )
+        try:
+            render_video_part(source, part, final_path, config=config, ass_path=ass_path)
+        finally:
+            if ass_path is not None:
+                discard(ass_path)
         return final_path, json.dumps(opts)
 
     # Deterministic timestamp-based name: re-runs overwrite instead of piling up.

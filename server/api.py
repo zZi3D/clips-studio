@@ -62,6 +62,7 @@ class JobIn(BaseModel):
     gaming_scoring: bool | None = None  # score as a gaming stream (with Vertical Live etc.)
     gaming_layout: dict | None = None  # the split set up before processing (gaming/run.py keys)
     gaming_remember: bool | None = None  # ...also kept for this creator's next videos
+    custom_chapters: str | None = None  # user-provided timestamps/chapters, one per line
     webhook_url: str | None = None  # POST once when this job reaches a terminal state
     webhook_secret: str | None = None  # signs that POST (X-Clips-Kitty-Signature)
     hashtags: list[str] | None = None  # tags every clip of this job must carry
@@ -102,6 +103,11 @@ class JobPatch(BaseModel):
     podcast: bool | None = None
     vertical_live: bool | None = None
     gaming: bool | None = None
+    clip_mode: str | None = None
+    compilation: bool | None = None
+    recap: bool | None = None
+    video_to_clips: bool | None = None
+    custom_chapters: str | None = None
     gaming_scoring: bool | None = None  # score as a gaming stream (with Vertical Live etc.)
     gaming_layout: dict | None = None  # the split set up before processing (gaming/run.py keys)
     gaming_remember: bool | None = None  # ...also kept for this creator's next videos
@@ -140,6 +146,11 @@ class BatchItemIn(BaseModel):
     podcast: bool | None = None
     vertical_live: bool | None = None
     gaming: bool | None = None
+    clip_mode: str | None = None
+    compilation: bool | None = None
+    recap: bool | None = None
+    video_to_clips: bool | None = None
+    custom_chapters: str | None = None
     gaming_scoring: bool | None = None  # score as a gaming stream (with Vertical Live etc.)
     gaming_layout: dict | None = None  # the split set up before processing (gaming/run.py keys)
     gaming_remember: bool | None = None  # ...also kept for this creator's next videos
@@ -245,6 +256,7 @@ class LocalVideoIn(BaseModel):
     gaming_scoring: bool | None = None  # score as a gaming stream (with Vertical Live etc.)
     gaming_layout: dict | None = None  # the split set up before processing (gaming/run.py keys)
     gaming_remember: bool | None = None  # ...also kept for this creator's next videos
+    custom_chapters: str | None = None  # user-provided timestamps/chapters, one per line
     # Where the file came from, when the user knows (a downloaded live's
     # original link). Optional: never invented. Kept with the video so the
     # clips' publishing footers can point back to it.
@@ -526,6 +538,9 @@ def _process_options(body, into: dict | None = None, data_dir: Path | None = Non
     payload["compilation"] = (c_mode == "compilation")
     payload["recap"] = (c_mode == "recap")
     payload["video_to_clips"] = (c_mode == "video_to_clips")
+    custom_chapters = getattr(body, "custom_chapters", None)
+    if custom_chapters is not None:
+        payload["custom_chapters"] = str(custom_chapters).strip()
 
     if getattr(body, "gaming_scoring", None):
         # Score as a gaming stream (analysis/gaming.py) with whatever layout

@@ -19,6 +19,7 @@ Designed for long recordings (90 to 300+ minutes) across any domain
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import time
 from dataclasses import dataclass
@@ -32,7 +33,37 @@ from core.binaries import ffmpeg
 from core.models import ClipCandidate, RenderedClip, Segment
 from core.paths import discard
 from core.state import StateDB
-from video.encoding import concat, concat_entry
+from video.encoding import concat, concat_entry, final_movflags, video_encoder_args
+
+
+def parse_custom_chapters(text: str | None) -> list[tuple[float, str]]:
+    """Parse custom timestamps/chapters into (seconds, label) tuples.
+
+    Supports lines like:
+       00:00 Intro
+       01:45 Step 1: Gathering resources
+       02:30:15 Boss encounter
+       or 105 Step 2
+    """
+    if not text:
+        return []
+    chapters: list[tuple[float, str]] = []
+    for line in text.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        m = re.match(r"^(\d+(?::\d+){1,2}|\d+(?:\.\d+)?)\s*[:-]?\s*(.*)$", line)
+        if m:
+            ts_str, title = m.groups()
+            parts = ts_str.split(":")
+            if len(parts) == 3:
+                secs = float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+            elif len(parts) == 2:
+                secs = float(parts[0]) * 60 + float(parts[1])
+            else:
+                secs = float(parts[0])
+            chapters.append((round(secs, 2), title.strip()))
+    return sorted(chapters, key=lambda x: x[0])
 
 
 @dataclass
@@ -52,6 +83,7 @@ class VideoPart:
     start: float
     end: float
     total_duration: float
+    chapter_title: str | None = None
 
     @property
     def label(self) -> str:
@@ -216,10 +248,12 @@ def find_snap_boundary(
     cut_times: Sequence[float] | None = None,
     motion: np.ndarray | None = None,
     loudness: np.ndarray | None = None,
+    chapter_timestamps: Sequence[float] | None = None,
 ) -> float:
     """Find the best natural split point within [window_start, window_end].
 
     Priority:
+      0. Custom chapter timestamp provided by user
       1. Transcript sentence boundary (end of sentence with '.', '?', '!' or speech gap > 0.5s)
       2. Scene cut point
       3. Valley in combined motion & audio
@@ -229,6 +263,13 @@ def find_snap_boundary(
         return window_start
 
     midpoint = (window_start + window_end) / 2.0
+
+    # 0. User-provided chapter timestamp (highest priority)
+    if chapter_timestamps:
+        valid_chapters = [c for c in chapter_timestamps if window_start <= c <= window_end]
+        if valid_chapters:
+            best_ch = min(valid_chapters, key=lambda c: abs(c - midpoint))
+            return round(best_ch, 2)
 
     # 1. Transcript sentence boundary
     if transcript_segments:
@@ -300,6 +341,7 @@ def partition_active_stream(
     target_part_duration: float = 180.0,
     elastic_slack: float = 15.0,
     min_tail_duration: float = 45.0,
+    custom_chapters: str | list[tuple[float, str]] | None = None,
 ) -> list[VideoPart]:
     """Partition active footage into sequential VideoParts of 120-180s.
 
@@ -307,12 +349,19 @@ def partition_active_stream(
       to snap to natural speech/scene/energy boundaries.
     - No mini-tail: if remaining active footage is < min_tail_duration (45s),
       merges it into the previous part.
+    - Custom chapters: user timestamps take top priority as snap split boundaries.
     """
     if not active_segments:
         return []
 
+    parsed_chapters: list[tuple[float, str]] = (
+        parse_custom_chapters(custom_chapters) if isinstance(custom_chapters, str) else (custom_chapters or [])
+    )
+    chapter_ts = [c[0] for c in parsed_chapters]
+
     total_active = sum(s.duration for s in active_segments)
     if total_active <= (target_part_duration + elastic_slack + min_tail_duration):
+        first_title = parsed_chapters[0][1] if parsed_chapters else None
         return [
             VideoPart(
                 part_number=1,
@@ -320,6 +369,7 @@ def partition_active_stream(
                 start=active_segments[0].start,
                 end=active_segments[-1].end,
                 total_duration=round(total_active, 2),
+                chapter_title=first_title,
             )
         ]
 
@@ -364,6 +414,7 @@ def partition_active_stream(
                 cut_times=cut_times,
                 motion=motion,
                 loudness=loudness,
+                chapter_timestamps=chapter_ts,
             )
 
             # Check remainder after snap_t:
@@ -392,6 +443,16 @@ def partition_active_stream(
             break
 
         if part_segments:
+            matching_title = None
+            if parsed_chapters:
+                p_start = part_segments[0].start
+                p_end = part_segments[-1].end
+                # Find chapter that lands in this part
+                for ch_t, ch_title in parsed_chapters:
+                    if p_start - 2.0 <= ch_t <= p_end:
+                        matching_title = ch_title
+                        break
+
             parts.append(
                 VideoPart(
                     part_number=len(parts) + 1,
@@ -399,10 +460,77 @@ def partition_active_stream(
                     start=part_segments[0].start,
                     end=part_segments[-1].end,
                     total_duration=round(accum_dur, 2),
+                    chapter_title=matching_title,
                 )
             )
 
     return parts
+
+
+def build_part_captions(
+    segments: Sequence[Segment],
+    part: VideoPart,
+    output_path: Path,
+    style: dict | None = None,
+    canvas: tuple[int, int] = (1080, 1920),
+    language: str = "en",
+) -> Path | None:
+    """Build an ASS subtitle file mapped to the concatenated timeline of VideoPart."""
+    if not segments or not part.segments:
+        return None
+    try:
+        from video.captions import build_captions
+
+        remapped_segments: list[Segment] = []
+        rendered_offset = 0.0
+
+        for a_seg in part.segments:
+            seg_dur = a_seg.duration
+            for s in segments:
+                if s.end > a_seg.start and s.start < a_seg.end:
+                    clamped_start = max(a_seg.start, s.start)
+                    clamped_end = min(a_seg.end, s.end)
+                    rel_start = rendered_offset + (clamped_start - a_seg.start)
+                    rel_end = rendered_offset + (clamped_end - a_seg.start)
+
+                    rem_words = []
+                    if getattr(s, "words", None):
+                        for w in s.words:
+                            w_s = w.get("start", clamped_start)
+                            w_e = w.get("end", clamped_end)
+                            if w_e > a_seg.start and w_s < a_seg.end:
+                                w_clamped_s = max(a_seg.start, w_s)
+                                w_clamped_e = min(a_seg.end, w_e)
+                                rem_words.append({
+                                    **w,
+                                    "start": rendered_offset + (w_clamped_s - a_seg.start),
+                                    "end": rendered_offset + (w_clamped_e - a_seg.start),
+                                })
+                    remapped_segments.append(
+                        Segment(
+                            start=round(rel_start, 3),
+                            end=round(rel_end, 3),
+                            text=s.text,
+                            words=rem_words if rem_words else None,
+                        )
+                    )
+            rendered_offset += seg_dur
+
+        if not remapped_segments:
+            return None
+
+        dummy_cand = ClipCandidate(start=0.0, end=part.total_duration, score=100)
+        return build_captions(
+            remapped_segments,
+            dummy_cand,
+            output_path,
+            style=style,
+            canvas=canvas,
+            language=language,
+        )
+    except Exception as e:
+        print(f"      (build_part_captions failed: {e})")
+        return None
 
 
 def render_video_part(
@@ -411,9 +539,13 @@ def render_video_part(
     output_path: Path,
     config: dict | None = None,
     crop_filter: str | None = None,
+    ass_path: Path | None = None,
 ) -> Path:
     """Render a VideoPart into a continuous MP4 file with 40ms micro audio-crossfades.
 
+    If not longform (default): formats as 9:16 vertical (1080x1920) with blurred background wash.
+    If longform: maintains original 16:9 aspect ratio.
+    If ass_path provided: burns subtitles into output stream.
     Uses an external filter_complex script file to stay safely under
     the Windows 8192-character command-line length limit.
     """
@@ -453,10 +585,38 @@ def render_video_part(
         # Concat filter
         v_inputs = "".join(f"[v{i}]" for i in range(n_segs))
         a_inputs = "".join(f"[a{i}]" for i in range(n_segs))
-        filter_lines.append(f"{v_inputs}{a_inputs}concat=n={n_segs}:v=1:a=1[v_out][a_out]")
+        filter_lines.append(f"{v_inputs}{a_inputs}concat=n={n_segs}:v=1:a=1[v_concat][a_out];")
+
+        # Layout: 9:16 vertical with blurred wash top & bottom vs 16:9 longform
+        is_longform = bool(config and config.get("clips", {}).get("longform"))
+        if is_longform:
+            last_v = "[v_concat]"
+        else:
+            bg = (
+                "scale=1080:1920:force_original_aspect_ratio=increase,"
+                "crop=1080:1920,scale=135:240,gblur=sigma=12,scale=1080:1920:flags=bilinear"
+            )
+            fg = "scale=1080:-2:flags=lanczos,crop=w=1080:h=min(ih\\,1920)"
+            filter_lines.append(
+                f"[v_concat]split=2[bg_in][fg_in];"
+                f"[bg_in]{bg}[bg];"
+                f"[fg_in]{fg}[fg];"
+                f"[bg][fg]overlay=0:(H-h)/2,setsar=1[v_vertical];"
+            )
+            last_v = "[v_vertical]"
+
+        if ass_path and Path(ass_path).exists():
+            clean_ass = str(Path(ass_path).name)
+            filter_lines.append(f"{last_v}subtitles=filename='{clean_ass}'[v_subbed];")
+            last_v = "[v_subbed]"
+
+        # Strip trailing semicolon from last line
+        if filter_lines and filter_lines[-1].endswith(";"):
+            filter_lines[-1] = filter_lines[-1][:-1]
 
         script_path.write_text("\n".join(filter_lines), encoding="utf-8")
 
+        enc_args = video_encoder_args(config)
         cmd = [
             ffmpeg(),
             "-y",
@@ -467,23 +627,19 @@ def render_video_part(
             "-filter_complex_script",
             str(script_path),
             "-map",
-            "[v_out]",
+            last_v,
             "-map",
             "[a_out]",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "fast",
-            "-crf",
-            "20",
+            *enc_args,
             "-c:a",
             "aac",
             "-b:a",
             "192k",
+            *final_movflags(),
             str(output_path),
         ]
 
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        r = subprocess.run(cmd, capture_output=True, text=True, cwd=str(output_path.parent))
         if r.returncode != 0 or not output_path.exists() or output_path.stat().st_size == 0:
             raise RuntimeError(f"FFmpeg render failed for {output_path.name}: {r.stderr.strip()[-300:]}")
 

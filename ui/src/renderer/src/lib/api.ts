@@ -154,6 +154,7 @@ export const api = {
         compilation: opts.compilation ?? null,
         recap: opts.recap ?? null,
         video_to_clips: opts.video_to_clips ?? null,
+        custom_chapters: opts.custom_chapters ?? null,
         gaming_scoring: opts.gaming_scoring ?? null,
         gaming_layout: opts.gaming_layout ?? null,
         gaming_remember: opts.gaming_remember ?? null,

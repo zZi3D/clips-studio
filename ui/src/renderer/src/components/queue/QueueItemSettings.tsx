@@ -67,6 +67,7 @@ export default function QueueItemSettings({
   const [clipMode, setClipMode] = useState<ClipMode>(
     s.clip_mode ?? (s.video_to_clips ? 'video_to_clips' : s.recap ? 'recap' : s.compilation ? 'compilation' : 'standard')
   )
+  const [customChapters, setCustomChapters] = useState(s.custom_chapters || '')
   const [sport, setSport] = useState<SportOption | null>(s.sport ?? null)
   const sports = useSports() ?? []
   const [longform, setLongform] = useState(Boolean(s.longform))
@@ -126,8 +127,10 @@ export default function QueueItemSettings({
       } else if (clipMode === 'video_to_clips') {
         patch.video_to_clips = true
         clear.push('compilation', 'recap')
+        if (customChapters.trim()) patch.custom_chapters = customChapters.trim()
+        else clear.push('custom_chapters')
       } else {
-        clear.push('compilation', 'recap', 'video_to_clips')
+        clear.push('compilation', 'recap', 'video_to_clips', 'custom_chapters')
       }
       if (sport) patch.sport = sport
       else clear.push('sport')
@@ -360,11 +363,22 @@ export default function QueueItemSettings({
             </div>
           )}
           {clipMode === 'video_to_clips' && (
-            <div className="mt-1 text-[11px] text-slate-400 space-y-0.5 border-t border-slate-800/80 pt-1.5">
+            <div className="mt-1 text-[11px] text-slate-400 space-y-1.5 border-t border-slate-800/80 pt-1.5">
               <div>✓ {t('Full video coverage (1000+ min)')}</div>
               <div>✓ {t('Removes static screens, menus & dead air (>4.5s)')}</div>
               <div>✓ {t('Skips silence with low motion')}</div>
               <div>✓ {t('Smart elastic splits into 2–3 min parts (part_01, part_02...)')}</div>
+              <div className="pt-1">
+                <label className="text-slate-400 mb-0.5 font-medium flex items-center justify-between">
+                  <span>{t('Custom Chapters / Timestamps')}</span>
+                </label>
+                <textarea
+                  className="w-full h-14 bg-[#0B0F17] border border-slate-700/80 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-[#38BDF8] resize-none font-mono placeholder:text-slate-600"
+                  placeholder={"00:00 Intro\n02:15 Step 1: Crafting"}
+                  value={customChapters}
+                  onChange={(e) => setCustomChapters(e.target.value)}
+                />
+              </div>
             </div>
           )}
         </div>

@@ -1195,18 +1195,32 @@ export default function AddVideos({ onAdded }: { onAdded?: () => void }): JSX.El
             )}
 
             {getSlotClipMode(slot.options) === 'video_to_clips' && (
-              <div className="card mt-2 py-2 px-3 bg-[#0F172A]/70 border border-[#38BDF8]/30 rounded-lg text-xs space-y-1">
-                <div className="font-semibold text-[#38BDF8] flex items-center gap-1.5">
-                  <span>Video to Clips (2-3 min)</span>
-                  <span className="text-[10px] text-muted font-normal">({t('Full video coverage')})</span>
+              <>
+                <div className="card mt-2 py-2 px-3 bg-[#0F172A]/70 border border-[#38BDF8]/30 rounded-lg text-xs space-y-1">
+                  <div className="font-semibold text-[#38BDF8] flex items-center gap-1.5">
+                    <span>Video to Clips (2-3 min)</span>
+                    <span className="text-[10px] text-muted font-normal">({t('Full video coverage')})</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 text-slate-300">
+                    <div>✓ {t('Full video coverage (1000+ min)')}</div>
+                    <div>✓ {t('Removes static screens, menus & dead air (>4.5s)')}</div>
+                    <div>✓ {t('Skips silence with low motion')}</div>
+                    <div>✓ {t('Smart elastic splits into 2–3 min parts (part_01, part_02...)')}</div>
+                  </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 text-slate-300">
-                  <div>✓ {t('Full video coverage (1000+ min)')}</div>
-                  <div>✓ {t('Removes static screens, menus & dead air (>4.5s)')}</div>
-                  <div>✓ {t('Skips silence with low motion')}</div>
-                  <div>✓ {t('Smart elastic splits into 2–3 min parts (part_01, part_02...)')}</div>
+                <div className="mt-2 text-xs">
+                  <label className="text-slate-400 mb-1 font-medium flex items-center justify-between">
+                    <span>{t('Custom Chapters / Timestamps (optional)')}</span>
+                    <span className="text-[10px] text-muted">{t('e.g. 01:45 Step 1')}</span>
+                  </label>
+                  <textarea
+                    className="w-full h-16 bg-[#0B0F17] border border-slate-700/80 rounded px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-[#38BDF8] resize-none font-mono placeholder:text-slate-600"
+                    placeholder={"00:00 Intro\n02:15 Step 1: Crafting\n05:30 Step 2: Battle"}
+                    value={slot.options.custom_chapters || ''}
+                    onChange={(e) => patchOptions(slot.key, { custom_chapters: e.target.value })}
+                  />
                 </div>
-              </div>
+              </>
             )}
 
             {slot.options.sport && offered.length > 0 && (

@@ -11,8 +11,16 @@ fixed were often broken in a way that only showed up on somebody else's machine.
 ## Unreleased
 
 > **Branch:** [`feature/visual-frame-analysis`](https://github.com/zZi3D/clips-studio/tree/feature/visual-frame-analysis)  
-> **Commit:** [`37b7fc7`](https://github.com/zZi3D/clips-studio/commit/37b7fc7) (`feat: enable Recap (How-To) in mode selector with live walkthrough infocard`)  
 > **GitHub PR:** [Create Pull Request](https://github.com/zZi3D/clips-studio/pull/new/feature/visual-frame-analysis)
+
+### Fixed & Completed
+
+- **End-to-End Pipeline Connection for Video to Clips (2-3 min).**
+  - **Full Stack Parameter Preservation:** Fixed `BatchItemIn`, `JobIn`, `JobPatch`, and `LocalVideoIn` Pydantic schemas in `server/api.py` and `server/jobs.py` so `clip_mode`, `video_to_clips`, and `custom_chapters` are preserved when queueing videos via the batch endpoint.
+  - **Complete Highlight Scoring & LLM Title Bypass:** When `video_to_clips` is active, the engine bypasses standard 15–45s highlight finding and LLM title inventing (`generate_metadata_batch`), directly creating sequential parts (`part_01.mp4`, `part_02.mp4`, etc.) with clean, readable part and chapter titles.
+  - **Vertical 9:16 Blurred Borders (1080x1920):** When `Longform (16:9 clips)` is OFF (default), renders in full 1080x1920 with 16:9 footage centered and blurred background wash filling top and bottom margins (matching the `cropper.py` filter profile). When `Longform` is enabled, preserves the original 16:9 frame.
+  - **Custom Chapters & Timestamps Input:** Added an optional textarea on the Dashboard (`AddVideos.tsx`) and in Queue Item Settings (`QueueItemSettings.tsx`). Parses custom timestamps (e.g., `01:45 Step 1`) as top-priority snap points for part boundaries and includes chapter names in part metadata.
+  - **Part Subtitle Remapping & Burning:** Added `build_part_captions()` in `video/video_to_clips.py` to remap Whisper word timestamps across concatenated active gameplay segments, burning stylish ASS captions directly during render when captions are enabled.
 
 ### Added
 

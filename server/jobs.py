@@ -239,6 +239,8 @@ class Worker(threading.Thread):
                     cfg["clips"]["compilation"] = (c_mode == "compilation")
                     cfg["clips"]["recap"] = (c_mode == "recap")
                     cfg["clips"]["video_to_clips"] = (c_mode == "video_to_clips")
+                    if payload.get("custom_chapters"):
+                        cfg["clips"]["custom_chapters"] = str(payload["custom_chapters"]).strip()
                     if "captions" in payload:
                         cfg["clips"]["captions"] = bool(payload["captions"])
                     if payload.get("min_score") is not None:

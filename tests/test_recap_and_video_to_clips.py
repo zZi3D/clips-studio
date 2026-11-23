@@ -138,9 +138,44 @@ def test_no_mini_tail_under_45s():
     assert abs(parts[0].total_duration - 210.0) <= 0.1
 
 
+def test_parse_custom_chapters_and_snapping():
+    from video.video_to_clips import parse_custom_chapters
+
+    text = """
+    00:00 Intro
+    01:45 Step 1: Gathering Resources
+    03:10 Step 2: Crafting
+    01:15:30 Boss Battle
+    """
+    chapters = parse_custom_chapters(text)
+    assert len(chapters) == 4
+    assert chapters[0] == (0.0, "Intro")
+    assert chapters[1] == (105.0, "Step 1: Gathering Resources")
+    assert chapters[2] == (190.0, "Step 2: Crafting")
+    assert chapters[3] == (4530.0, "Boss Battle")
+
+    # Test snapping to chapter timestamp
+    # Search window [100.0, 115.0] contains chapter at 105.0s
+    snap = find_snap_boundary(100.0, 115.0, chapter_timestamps=[105.0, 190.0])
+    assert snap == 105.0
+
+    # Test partitioning with custom chapters
+    active = [ActiveSegment(0.0, 400.0)]
+    parts = partition_active_stream(
+        active,
+        target_part_duration=180.0,
+        elastic_slack=15.0,
+        custom_chapters=text,
+    )
+    assert len(parts) >= 2
+    # First part or second part picks up chapter title
+    assert parts[0].chapter_title in ("Intro", "Step 1: Gathering Resources", "Step 2: Crafting")
+
+
 if __name__ == "__main__":
     test_uniform_mode_mutual_exclusivity()
     test_find_dead_intervals_and_active_segments()
     test_elastic_snap_boundary_and_partitioning()
     test_no_mini_tail_under_45s()
+    test_parse_custom_chapters_and_snapping()
     print("ALL RONDE 1 VIDEO TO CLIPS TESTS PASSED SUCCESSFULLY!")
