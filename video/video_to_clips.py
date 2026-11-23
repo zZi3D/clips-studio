@@ -546,106 +546,95 @@ def render_video_part(
     If not longform (default): formats as 9:16 vertical (1080x1920) with blurred background wash.
     If longform: maintains original 16:9 aspect ratio.
     If ass_path provided: burns subtitles into output stream.
-    Uses an external filter_complex script file to stay safely under
-    the Windows 8192-character command-line length limit.
+    Compatible with FFmpeg 5, 6, 7, 8 and 9.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    temp_dir = output_path.parent / ".v2c_tmp"
-    temp_dir.mkdir(parents=True, exist_ok=True)
 
-    script_path = temp_dir / f"{output_path.stem}_filter.txt"
-    try:
-        # Build filter script for N segments with 40ms audio crossfade / fade
-        filter_lines: list[str] = []
-        n_segs = len(part.segments)
+    # Build filter complex for N segments with 40ms audio crossfade / fade
+    filter_parts: list[str] = []
+    n_segs = len(part.segments)
 
-        for i, seg in enumerate(part.segments):
-            dur = seg.duration
-            v_label = f"v{i}"
-            a_label = f"a{i}"
+    for i, seg in enumerate(part.segments):
+        dur = seg.duration
+        v_label = f"v{i}"
+        a_label = f"a{i}"
 
-            # Video trim
-            if crop_filter:
-                filter_lines.append(
-                    f"[0:v]trim=start={seg.start:.3f}:end={seg.end:.3f},setpts=PTS-STARTPTS,{crop_filter}[{v_label}];"
-                )
-            else:
-                filter_lines.append(
-                    f"[0:v]trim=start={seg.start:.3f}:end={seg.end:.3f},setpts=PTS-STARTPTS[{v_label}];"
-                )
-
-            # Audio trim with 40ms (0.04s) micro-fade at head and tail
-            fade_d = min(0.04, dur / 3.0)
-            st_out = max(0.0, dur - fade_d)
-            filter_lines.append(
-                f"[0:a]atrim=start={seg.start:.3f}:end={seg.end:.3f},asetpts=PTS-STARTPTS,"
-                f"afade=t=in:ss=0:d={fade_d:.3f},afade=t=out:st={st_out:.3f}:d={fade_d:.3f}[{a_label}];"
+        # Video trim
+        if crop_filter:
+            filter_parts.append(
+                f"[0:v]trim=start={seg.start:.3f}:end={seg.end:.3f},setpts=PTS-STARTPTS,{crop_filter}[{v_label}];"
             )
-
-        # Concat filter
-        v_inputs = "".join(f"[v{i}]" for i in range(n_segs))
-        a_inputs = "".join(f"[a{i}]" for i in range(n_segs))
-        filter_lines.append(f"{v_inputs}{a_inputs}concat=n={n_segs}:v=1:a=1[v_concat][a_out];")
-
-        # Layout: 9:16 vertical with blurred wash top & bottom vs 16:9 longform
-        is_longform = bool(config and config.get("clips", {}).get("longform"))
-        if is_longform:
-            last_v = "[v_concat]"
         else:
-            bg = (
-                "scale=1080:1920:force_original_aspect_ratio=increase,"
-                "crop=1080:1920,scale=135:240,gblur=sigma=12,scale=1080:1920:flags=bilinear"
+            filter_parts.append(
+                f"[0:v]trim=start={seg.start:.3f}:end={seg.end:.3f},setpts=PTS-STARTPTS[{v_label}];"
             )
-            fg = "scale=1080:-2:flags=lanczos,crop=w=1080:h=min(ih\\,1920)"
-            filter_lines.append(
-                f"[v_concat]split=2[bg_in][fg_in];"
-                f"[bg_in]{bg}[bg];"
-                f"[fg_in]{fg}[fg];"
-                f"[bg][fg]overlay=0:(H-h)/2,setsar=1[v_vertical];"
-            )
-            last_v = "[v_vertical]"
 
-        if ass_path and Path(ass_path).exists():
-            clean_ass = str(Path(ass_path).name)
-            filter_lines.append(f"{last_v}subtitles=filename='{clean_ass}'[v_subbed];")
-            last_v = "[v_subbed]"
+        # Audio trim with 40ms (0.04s) micro-fade at head and tail
+        fade_d = min(0.04, dur / 3.0)
+        st_out = max(0.0, dur - fade_d)
+        filter_parts.append(
+            f"[0:a]atrim=start={seg.start:.3f}:end={seg.end:.3f},asetpts=PTS-STARTPTS,"
+            f"afade=t=in:ss=0:d={fade_d:.3f},afade=t=out:st={st_out:.3f}:d={fade_d:.3f}[{a_label}];"
+        )
 
-        # Strip trailing semicolon from last line
-        if filter_lines and filter_lines[-1].endswith(";"):
-            filter_lines[-1] = filter_lines[-1][:-1]
+    # Concat filter
+    v_inputs = "".join(f"[v{i}]" for i in range(n_segs))
+    a_inputs = "".join(f"[a{i}]" for i in range(n_segs))
+    filter_parts.append(f"{v_inputs}{a_inputs}concat=n={n_segs}:v=1:a=1[v_concat][a_out];")
 
-        script_path.write_text("\n".join(filter_lines), encoding="utf-8")
+    # Layout: 9:16 vertical with blurred wash top & bottom vs 16:9 longform
+    is_longform = bool(config and config.get("clips", {}).get("longform"))
+    if is_longform:
+        last_v = "[v_concat]"
+    else:
+        bg = (
+            "scale=1080:1920:force_original_aspect_ratio=increase,"
+            "crop=1080:1920,scale=135:240,gblur=sigma=12,scale=1080:1920:flags=bilinear"
+        )
+        fg = "scale=1080:-2:flags=lanczos,crop=w=1080:h=min(ih\\,1920)"
+        filter_parts.append(
+            f"[v_concat]split=2[bg_in][fg_in];"
+            f"[bg_in]{bg}[bg];"
+            f"[fg_in]{fg}[fg];"
+            f"[bg][fg]overlay=0:(H-h)/2,setsar=1[v_vertical];"
+        )
+        last_v = "[v_vertical]"
 
-        enc_args = video_encoder_args(config)
-        cmd = [
-            ffmpeg(),
-            "-y",
-            "-v",
-            "error",
-            "-i",
-            str(video_path),
-            "-filter_complex_script",
-            str(script_path),
-            "-map",
-            last_v,
-            "-map",
-            "[a_out]",
-            *enc_args,
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            *final_movflags(),
-            str(output_path),
-        ]
+    if ass_path and Path(ass_path).exists():
+        clean_ass = str(Path(ass_path).name)
+        filter_parts.append(f"{last_v}subtitles=filename='{clean_ass}'[v_subbed];")
+        last_v = "[v_subbed]"
 
-        r = subprocess.run(cmd, capture_output=True, text=True, cwd=str(output_path.parent))
-        if r.returncode != 0 or not output_path.exists() or output_path.stat().st_size == 0:
-            raise RuntimeError(f"FFmpeg render failed for {output_path.name}: {r.stderr.strip()[-300:]}")
+    filter_str = "".join(filter_parts).rstrip(";")
 
-        return output_path
-    finally:
-        discard(script_path)
+    enc_args = video_encoder_args(config)
+    cmd = [
+        ffmpeg(),
+        "-y",
+        "-v",
+        "error",
+        "-i",
+        str(video_path),
+        "-filter_complex",
+        filter_str,
+        "-map",
+        last_v,
+        "-map",
+        "[a_out]",
+        *enc_args,
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        *final_movflags(),
+        str(output_path),
+    ]
+
+    r = subprocess.run(cmd, capture_output=True, text=True, cwd=str(output_path.parent))
+    if r.returncode != 0 or not output_path.exists() or output_path.stat().st_size == 0:
+        raise RuntimeError(f"FFmpeg render failed for {output_path.name}: {r.stderr.strip()[-300:]}")
+
+    return output_path
 
 
 def run_video_to_clips_pipeline(
