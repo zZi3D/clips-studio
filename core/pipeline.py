@@ -1780,7 +1780,7 @@ def _render_files(
             chapter_title=ch_title,
         )
         ass_path = None
-        if config["clips"].get("captions") or opts.get("captions") or opts.get("caption_lines") or opts.get("caption_style"):
+        if captions_on(config, opts):
             caption_style = _plain_caption_style(opts.get("caption_style") or config["clips"].get("caption_style"))
             is_longform = bool(config.get("clips", {}).get("longform"))
             canvas = (1920, 1080) if is_longform else (1080, 1920)
@@ -1797,7 +1797,12 @@ def _render_files(
         finally:
             if ass_path is not None:
                 discard(ass_path)
-        return final_path, json.dumps(opts)
+        job_captions = bool(config.get("clips", {}).get("captions", True)) and opts.get("job_captions", True)
+        saved_opts = {
+            **opts,
+            **({"job_captions": False} if not job_captions else {}),
+        }
+        return final_path, json.dumps(saved_opts)
 
     # Deterministic timestamp-based name: re-runs overwrite instead of piling up.
     stem = f"clip_{int(candidate.start):05d}-{int(candidate.end):05d}"

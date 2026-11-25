@@ -15,6 +15,11 @@ fixed were often broken in a way that only showed up on somebody else's machine.
 
 ### Fixed & Completed
 
+- **Strict Captions Switch Adherence for Video to Clips.**
+  - **Probleem:** Bij het re-renderen of bewerken van een *Video to Clips* onderdeel werden er ongevraagd ondertitels (captions) in de video gebrand, en handmatig in- of uitschakelen in de editor werd genegeerd (ondertitels bleven zichtbaar).
+  - **Oorzaak:** De conditie controleerde op `or opts.get("caption_style")`. Aangezien er altijd standaard styling data aanwezig is, evalueerde dit altijd naar `True`, zelfs als de gebruiker Captions expliciet had uitgevinkt (`opts["captions"] = False`).
+  - **Oplossing:** `core/pipeline.py` gebruikt nu het officiële `captions_on(config, opts)` mechanisme. Wanneer de gebruiker de Captions checkbox uitschakelt (of de job captions op false had staan), wordt er geen ondertitelbestand gegenereerd en blijft de video 100% vrij van ondertitels.
+
 - **Preserve Video to Clips 9:16 Blurred Borders during Re-Render & Editor Preview.**
   - **Probleem:** Wanneer een *Video to Clips* onderdeel in de Clip Editor werd bewerkt (bijv. aanpassen start/eindtijd, ondertitels) of opnieuw werd gerenderd via "Re-render", sprong de clip om van 9:16 met blurred borders naar 9:16 fullscreen zoom (smart cropper/face-tracking).
   - **Oorzaak:** Bij het re-renderen vanuit de editor (`server/jobs.py`) en bij de editor live preview (`server/api.py:preview_clip`) werd `candidate.source = "video_to_clips"` niet meegegeven. De render-engine behandelde de clip daardoor als een standaard highlight en schakelde automatisch de AI gezichtstracking / fullscreen cropper in.
