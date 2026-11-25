@@ -1993,9 +1993,13 @@ def create_app(config: dict, settings_path: Path) -> FastAPI:
         if body.captions is not None:
             opts["captions"] = body.captions
 
+        scores_dict = json.loads(row["scores"]) if row["scores"] else None
+        is_v2c = bool(scores_dict and (scores_dict.get("part_number") or scores_dict.get("segments")))
         candidate = ClipCandidate(
             start=row["start_s"], end=row["end_s"],
             score=row["score"] or 0, hook=row["hook"] or "",
+            source="video_to_clips" if is_v2c else "standard",
+            subscores=scores_dict,
         )
         prev_dir = data_dir / "previews"
         prev_dir.mkdir(parents=True, exist_ok=True)

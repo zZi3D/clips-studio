@@ -1743,15 +1743,34 @@ def _render_files(
         opts["whole"] = True
 
     # Video to Clips (2-3 min) rendering path with 40ms micro audio-crossfades
-    if candidate.source == "video_to_clips" and (candidate.subscores or {}).get("segments"):
+    is_v2c = (candidate.source == "video_to_clips") or bool((candidate.subscores or {}).get("part_number"))
+    if is_v2c:
         from video.video_to_clips import ActiveSegment, VideoPart, build_part_captions, render_video_part
         part_num = int((candidate.subscores or {}).get("part_number", 1))
         ch_title = (candidate.subscores or {}).get("chapter_title")
         stem = f"part_{part_num:02d}"
         final_path = clip_dir / f"{stem}.mp4"
         clip_dir.mkdir(parents=True, exist_ok=True)
-        raw_segs = candidate.subscores.get("segments") or []
-        segs = [ActiveSegment(s[0], s[1]) for s in raw_segs]
+        raw_segs = (candidate.subscores or {}).get("segments") or []
+        segs = [ActiveSegment(s[0], s[1]) for s in raw_segs] if raw_segs else []
+        if not segs:
+            segs = [ActiveSegment(candidate.start, candidate.end)]
+        else:
+            # Adjust outer segments if user changed start/end during re-render
+            if candidate.start != segs[0].start:
+                segs = [s for s in segs if s.end > candidate.start]
+                if segs:
+                    segs[0] = ActiveSegment(candidate.start, segs[0].end)
+                else:
+                    segs = [ActiveSegment(candidate.start, candidate.end)]
+            if segs and candidate.end != segs[-1].end:
+                segs = [s for s in segs if s.start < candidate.end]
+                if segs:
+                    segs[-1] = ActiveSegment(segs[-1].start, candidate.end)
+                else:
+                    segs = [ActiveSegment(candidate.start, candidate.end)]
+        if candidate.subscores is not None:
+            candidate.subscores["segments"] = [[s.start, s.end] for s in segs]
         part = VideoPart(
             part_number=part_num,
             segments=segs,
@@ -1761,7 +1780,7 @@ def _render_files(
             chapter_title=ch_title,
         )
         ass_path = None
-        if config["clips"].get("captions"):
+        if config["clips"].get("captions") or opts.get("captions") or opts.get("caption_lines") or opts.get("caption_style"):
             caption_style = _plain_caption_style(opts.get("caption_style") or config["clips"].get("caption_style"))
             is_longform = bool(config.get("clips", {}).get("longform"))
             canvas = (1920, 1080) if is_longform else (1080, 1920)

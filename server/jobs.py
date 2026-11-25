@@ -854,9 +854,12 @@ class Worker(threading.Thread):
 
         start = float(payload.get("start", clip["start_s"]))
         end = float(payload.get("end", clip["end_s"]))
+        scores_data = _json.loads(clip["scores"]) if clip["scores"] else None
+        is_v2c = bool(scores_data and (scores_data.get("part_number") or scores_data.get("segments")))
         candidate = ClipCandidate(
             start=start, end=end, score=clip["score"], hook=clip["hook"] or "",
-            subscores=_json.loads(clip["scores"]) if clip["scores"] else None,
+            source="video_to_clips" if is_v2c else (clip.get("source") or "standard"),
+            subscores=scores_data,
         )
 
         # Persisted render options, overlaid with this edit's changes.

@@ -15,6 +15,11 @@ fixed were often broken in a way that only showed up on somebody else's machine.
 
 ### Fixed & Completed
 
+- **Preserve Video to Clips 9:16 Blurred Borders during Re-Render & Editor Preview.**
+  - **Probleem:** Wanneer een *Video to Clips* onderdeel in de Clip Editor werd bewerkt (bijv. aanpassen start/eindtijd, ondertitels) of opnieuw werd gerenderd via "Re-render", sprong de clip om van 9:16 met blurred borders naar 9:16 fullscreen zoom (smart cropper/face-tracking).
+  - **Oorzaak:** Bij het re-renderen vanuit de editor (`server/jobs.py`) en bij de editor live preview (`server/api.py:preview_clip`) werd `candidate.source = "video_to_clips"` niet meegegeven. De render-engine behandelde de clip daardoor als een standaard highlight en schakelde automatisch de AI gezichtstracking / fullscreen cropper in.
+  - **Oplossing:** `core/pipeline.py`, `server/jobs.py` en `server/api.py` herkennen nu op basis van `source` en `subscores.part_number` dat de clip behoort tot *Video to Clips*. Bij re-render of preview worden de tijden en segmenten netjes bijgesteld en blijft de 9:16 blurred border layout permanent behouden. Andere modi (zoals standaard highlights, compilaties, recap) blijven 100% ongewijzigd.
+
 - **FFmpeg Concat Stream Interleaving Fix for Multi-Chapter Parts.**
   - **Probleem:** Bij `video_to_clips` delen die bestaan uit meerdere samengevoegde hoofdstukken (bijv. Part 01 met Intro + Mistake 1, Part 02 met Mistake 2 t/m 4) faalde het renderen met `Error : Invalid argument (Media type mismatch between audio output and video input pad)`. Alleen delen met 1 enkel hoofdstuk (zoals Part 04 / Mistake 8) kwamen erdoor.
   - **Oorzaak:** Het FFmpeg `concat` filter verwacht stream inputs per segment om en om (`[v0][a0][v1][a1]...`), maar de input string werd gegroepeerd gegenereerd als `[v0][v1][a0][a1]`, waardoor FFmpeg een audiostroom aan een video input probeerde te koppelen.
