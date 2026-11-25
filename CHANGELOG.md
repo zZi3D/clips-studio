@@ -15,6 +15,11 @@ fixed were often broken in a way that only showed up on somebody else's machine.
 
 ### Fixed & Completed
 
+- **Universal YouTube Markdown Timestamp Parsing & Strict <=180s Shorts Bin-Packing.**
+  - **Universal YouTube/Markdown Chapter Parser:** `parse_custom_chapters()` now seamlessly handles any YouTube copy-paste format: bracketed timestamps `[0:29]`, YouTube markdown URLs `[0:29](https://youtube.com/...)`, and continuous multi-chapter blocks on single or multiple lines. Automatically strips extraneous markdown/URLs and isolates clean titles.
+  - **Strict <=180s YouTube Shorts Bin-Packing:** When custom chapters are provided, `partition_active_stream()` groups entire chapters as indivisible atomic units without ever cutting in the middle of a topic or tip. Enforces a strict hard limit of `<= 180.0s` (3 minutes) to guarantee 100% eligibility for YouTube Shorts. Large topics (e.g. 2 min+ like *Mistake #8*) receive their own dedicated Short, and subsequent chapters only bundle if the combined length stays safely within 180 seconds.
+  - **Multi-Chapter Descriptive Titles:** Clips bundled from multiple chapters automatically receive clear, professional titles (e.g., `GTA 6 - Part 01: Intro & Mistake #1`, `Part 02: Mistake #2 - Mistake #4`), safely capped at 100 characters for YouTube compatibility.
+
 - **End-to-End Pipeline Connection for Video to Clips (2-3 min).**
   - **Full Stack Parameter Preservation:** Fixed `BatchItemIn`, `JobIn`, `JobPatch`, and `LocalVideoIn` Pydantic schemas in `server/api.py` and `server/jobs.py` so `clip_mode`, `video_to_clips`, and `custom_chapters` are preserved when queueing videos via the batch endpoint.
   - **Complete Highlight Scoring & LLM Title Bypass:** When `video_to_clips` is active, the engine bypasses standard 15–45s highlight finding and LLM title inventing (`generate_metadata_batch`), directly creating sequential parts (`part_01.mp4`, `part_02.mp4`, etc.) with clean, readable part and chapter titles.

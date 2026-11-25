@@ -39,31 +39,46 @@ from video.encoding import concat, concat_entry, final_movflags, video_encoder_a
 def parse_custom_chapters(text: str | None) -> list[tuple[float, str]]:
     """Parse custom timestamps/chapters into (seconds, label) tuples.
 
-    Supports lines like:
-       00:00 Intro
-       01:45 Step 1: Gathering resources
-       02:30:15 Boss encounter
-       or 105 Step 2
+    Universally supports:
+      - YouTube markdown links: [0:29](https://youtube.com/...) Mistake #1
+      - Bracketed timestamps: [0:29] Mistake #1
+      - Standard timestamps: 0:29 Mistake #1 or 00:01:45 Step 1
+      - Multiline or continuous single-line strings.
     """
     if not text:
         return []
+    pattern = re.compile(r"\[?(\d{1,2}(?::\d{2}){1,2})\]?(?:\([^\)]*\))?\s*[-:–—]?\s*")
+    matches = list(pattern.finditer(text))
     chapters: list[tuple[float, str]] = []
-    for line in text.strip().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        m = re.match(r"^(\d+(?::\d+){1,2}|\d+(?:\.\d+)?)\s*[:-]?\s*(.*)$", line)
-        if m:
-            ts_str, title = m.groups()
-            parts = ts_str.split(":")
-            if len(parts) == 3:
-                secs = float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
-            elif len(parts) == 2:
-                secs = float(parts[0]) * 60 + float(parts[1])
-            else:
-                secs = float(parts[0])
-            chapters.append((round(secs, 2), title.strip()))
+    for i, m in enumerate(matches):
+        ts_str = m.group(1)
+        start_pos = m.end()
+        end_pos = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        raw_title = text[start_pos:end_pos].strip()
+        # Clean URLs and markdown formatting from title
+        clean_title = re.sub(r"https?://\S+", "", raw_title)
+        clean_title = re.sub(r"\[.*?\]\(.*?\)", "", clean_title).strip(" -:–—\r\n\t")
+        parts = ts_str.split(":")
+        if len(parts) == 3:
+            secs = float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+        elif len(parts) == 2:
+            secs = float(parts[0]) * 60 + float(parts[1])
+        else:
+            secs = float(parts[0])
+        chapters.append((round(secs, 2), clean_title))
     return sorted(chapters, key=lambda x: x[0])
+
+
+def format_chapter_titles(titles: Sequence[str]) -> str:
+    """Format multiple chapter titles into a concise summary title."""
+    c = [t.strip() for t in titles if t.strip()]
+    if not c:
+        return ""
+    if len(c) == 1:
+        return c[0]
+    if len(c) == 2:
+        return f"{c[0]} & {c[1]}"
+    return f"{c[0]} - {c[-1]}"
 
 
 @dataclass
@@ -358,6 +373,108 @@ def partition_active_stream(
         parse_custom_chapters(custom_chapters) if isinstance(custom_chapters, str) else (custom_chapters or [])
     )
     chapter_ts = [c[0] for c in parsed_chapters]
+
+    # Chapter-driven bin-packing mode (when chapters/timestamps provided)
+    if parsed_chapters:
+        max_part_dur = 180.0  # Hard 3-minute cap for YouTube Shorts
+        ordered_ch = list(parsed_chapters)
+        if ordered_ch[0][0] > 0.5:
+            ordered_ch.insert(0, (0.0, "Intro"))
+
+        video_end_t = active_segments[-1].end if active_segments else ordered_ch[-1][0] + 180.0
+        ch_items: list[tuple[float, float, str, list[ActiveSegment], float]] = []
+
+        for i in range(len(ordered_ch)):
+            c_start = ordered_ch[i][0]
+            c_end = ordered_ch[i + 1][0] if i + 1 < len(ordered_ch) else video_end_t
+            c_title = ordered_ch[i][1] or f"Chapter {i + 1}"
+
+            c_segs: list[ActiveSegment] = []
+            for s in active_segments:
+                if s.end > c_start and s.start < c_end:
+                    c_segs.append(ActiveSegment(round(max(c_start, s.start), 3), round(min(c_end, s.end), 3)))
+            c_segs = [s for s in c_segs if s.duration > 0.05]
+            c_dur = sum(s.duration for s in c_segs)
+            ch_items.append((c_start, c_end, c_title, c_segs, c_dur))
+
+        parts: list[VideoPart] = []
+        cur_titles: list[str] = []
+        cur_segs: list[ActiveSegment] = []
+        cur_dur = 0.0
+
+        for c_start, c_end, c_title, c_segs, c_dur in ch_items:
+            # Single huge chapter (> 180s): sub-partition so parts stay <= 180s
+            if c_dur > max_part_dur:
+                if cur_segs:
+                    parts.append(
+                        VideoPart(
+                            part_number=len(parts) + 1,
+                            segments=cur_segs,
+                            start=cur_segs[0].start,
+                            end=cur_segs[-1].end,
+                            total_duration=round(cur_dur, 2),
+                            chapter_title=format_chapter_titles(cur_titles),
+                        )
+                    )
+                    cur_titles, cur_segs, cur_dur = [], [], 0.0
+
+                sub_parts = partition_active_stream(
+                    c_segs,
+                    transcript_segments=transcript_segments,
+                    cut_times=cut_times,
+                    motion=motion,
+                    loudness=loudness,
+                    target_part_duration=180.0,
+                    elastic_slack=0.0,
+                    min_tail_duration=min_tail_duration,
+                    custom_chapters=None,
+                )
+                for sp in sub_parts:
+                    sub_title = f"{c_title} (Part {sp.part_number})" if len(sub_parts) > 1 else c_title
+                    parts.append(
+                        VideoPart(
+                            part_number=len(parts) + 1,
+                            segments=sp.segments,
+                            start=sp.start,
+                            end=sp.end,
+                            total_duration=sp.total_duration,
+                            chapter_title=sub_title,
+                        )
+                    )
+                continue
+
+            # If adding this chapter exceeds hard 180s limit, close current part!
+            if cur_segs and (cur_dur + c_dur > max_part_dur):
+                parts.append(
+                    VideoPart(
+                        part_number=len(parts) + 1,
+                        segments=cur_segs,
+                        start=cur_segs[0].start,
+                        end=cur_segs[-1].end,
+                        total_duration=round(cur_dur, 2),
+                        chapter_title=format_chapter_titles(cur_titles),
+                    )
+                )
+                cur_titles, cur_segs, cur_dur = [], [], 0.0
+
+            if c_segs:
+                cur_titles.append(c_title)
+                cur_segs.extend(c_segs)
+                cur_dur += c_dur
+
+        if cur_segs:
+            parts.append(
+                VideoPart(
+                    part_number=len(parts) + 1,
+                    segments=cur_segs,
+                    start=cur_segs[0].start,
+                    end=cur_segs[-1].end,
+                    total_duration=round(cur_dur, 2),
+                    chapter_title=format_chapter_titles(cur_titles),
+                )
+            )
+
+        return parts
 
     total_active = sum(s.duration for s in active_segments)
     if total_active <= (target_part_duration + elastic_slack + min_tail_duration):

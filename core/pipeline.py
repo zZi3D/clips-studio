@@ -724,6 +724,8 @@ def process_video(url: str, config: dict, db: StateDB, force: bool = False) -> l
                 t_str = f"{video.title} - Part {p_num:02d}: {ch_title}"
             else:
                 t_str = f"{video.title} - Part {p_num:02d}"
+            if len(t_str) > 100:
+                t_str = t_str[:97] + "..."
             metas.append(ClipMetadata(title=t_str, description=c.reason or f"Part {p_num:02d} of {video.title}", hashtags=["#clips", "#gameplay"]))
     else:
         # Titles/descriptions/hashtags for ALL clips in a few batched LLM calls

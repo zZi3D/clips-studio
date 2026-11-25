@@ -159,17 +159,34 @@ def test_parse_custom_chapters_and_snapping():
     snap = find_snap_boundary(100.0, 115.0, chapter_timestamps=[105.0, 190.0])
     assert snap == 105.0
 
-    # Test partitioning with custom chapters
-    active = [ActiveSegment(0.0, 400.0)]
-    parts = partition_active_stream(
-        active,
-        target_part_duration=180.0,
-        elastic_slack=15.0,
-        custom_chapters=text,
-    )
-    assert len(parts) >= 2
-    # First part or second part picks up chapter title
-    assert parts[0].chapter_title in ("Intro", "Step 1: Gathering Resources", "Step 2: Crafting")
+
+def test_youtube_markdown_chapters_and_strict_180s_binpacking():
+    from video.video_to_clips import parse_custom_chapters
+
+    # Exact raw text from user copy-pasted from YouTube
+    raw_text = """
+    [0:00](https://www.youtube.com/watch?v=r3oAEokOT5w) Intro [0:29](https://www.youtube.com/watch?v=r3oAEokOT5w&t=29s) Mistake #1 - Spending Money Too Early [2:04](https://www.youtube.com/watch?v=r3oAEokOT5w&t=124s) Mistake #2 - Missing FREE 50K [3:05](https://www.youtube.com/watch?v=r3oAEokOT5w&t=185s) Mistake #3 - Not Upgrading Your Weapons [4:04](https://www.youtube.com/watch?v=r3oAEokOT5w&t=244s) Mistake #4 - Forgetting to Save Your Game [5:00](https://www.youtube.com/watch?v=r3oAEokOT5w&t=300s) Mistake #5 – Driving EVERYWHERE [5:51](https://www.youtube.com/watch?v=r3oAEokOT5w&t=351s) Mistake #6 - Upgrading the Wrong Cars [6:21](https://www.youtube.com/watch?v=r3oAEokOT5w&t=381s) Mistake #7 - Trusting Autosave [7:18](https://www.youtube.com/watch?v=r3oAEokOT5w&t=438s) Mistake #8 – MOST IMPORTANT MISTAKE [9:38](https://www.youtube.com/watch?v=r3oAEokOT5w&t=578s) Mistake #9 - Wasting Money on THIS [10:53](https://www.youtube.com/watch?v=r3oAEokOT5w&t=653s) Mistake #10 - Underestimating Missions [12:04](https://www.youtube.com/watch?v=r3oAEokOT5w&t=724s) Mistake #11 - Robbing Stores the Wrong Way [12:48](https://www.youtube.com/watch?v=r3oAEokOT5w&t=768s) Mistake #12 - Ignoring Scuba Diving [13:14](https://www.youtube.com/watch?v=r3oAEokOT5w&t=794s) Mistake #13 - Missing Criminal Opportunities [13:49](https://www.youtube.com/watch?v=r3oAEokOT5w&t=829s&pp=0gcJCWMAwfN6Pr3D) Mistake #14 - Believing Everything Online [15:12](https://www.youtube.com/watch?v=r3oAEokOT5w&t=912s) Mistake #15 - Rushing Through GTA 6
+    """
+    chapters = parse_custom_chapters(raw_text)
+    assert len(chapters) == 16
+    assert chapters[0][1] == "Intro"
+    assert "Mistake #1" in chapters[1][1]
+    assert "Mistake #8" in chapters[8][1]
+
+    # Partition full video (1000s active gameplay)
+    active = [ActiveSegment(0.0, 1000.0)]
+    parts = partition_active_stream(active, custom_chapters=raw_text)
+
+    # 1. Every single part must strictly obey YouTube Shorts <= 180.0s (3 min) limit
+    for p in parts:
+        assert p.total_duration <= 180.0, f"Part {p.part_number} ({p.total_duration}s) exceeded 180s YouTube Shorts limit!"
+
+    # 2. Mistake #8 (140s alone) must have its own part and not bleed into Mistake #7 or #9
+    p8 = [p for p in parts if "Mistake #8" in p.chapter_title]
+    assert len(p8) == 1
+    assert p8[0].total_duration == 140.0
+    assert "Mistake #7" not in p8[0].chapter_title
+    assert "Mistake #9" not in p8[0].chapter_title
 
 
 if __name__ == "__main__":
@@ -178,4 +195,5 @@ if __name__ == "__main__":
     test_elastic_snap_boundary_and_partitioning()
     test_no_mini_tail_under_45s()
     test_parse_custom_chapters_and_snapping()
+    test_youtube_markdown_chapters_and_strict_180s_binpacking()
     print("ALL RONDE 1 VIDEO TO CLIPS TESTS PASSED SUCCESSFULLY!")
