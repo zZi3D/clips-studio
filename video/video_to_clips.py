@@ -694,10 +694,9 @@ def render_video_part(
             f"afade=t=in:ss=0:d={fade_d:.3f},afade=t=out:st={st_out:.3f}:d={fade_d:.3f}[{a_label}];"
         )
 
-    # Concat filter
-    v_inputs = "".join(f"[v{i}]" for i in range(n_segs))
-    a_inputs = "".join(f"[a{i}]" for i in range(n_segs))
-    filter_parts.append(f"{v_inputs}{a_inputs}concat=n={n_segs}:v=1:a=1[v_concat][a_out];")
+    # Concat filter: FFmpeg concat filter requires interleaved stream pads per segment: [v0][a0][v1][a1]...
+    concat_inputs = "".join(f"[v{i}][a{i}]" for i in range(n_segs))
+    filter_parts.append(f"{concat_inputs}concat=n={n_segs}:v=1:a=1[v_concat][a_out];")
 
     # Layout: 9:16 vertical with blurred wash top & bottom vs 16:9 longform
     is_longform = bool(config and config.get("clips", {}).get("longform"))
@@ -725,13 +724,14 @@ def render_video_part(
     filter_str = "".join(filter_parts).rstrip(";")
 
     enc_args = video_encoder_args(config)
+    resolved_video_path = Path(video_path).resolve()
     cmd = [
         ffmpeg(),
         "-y",
         "-v",
         "error",
         "-i",
-        str(video_path),
+        str(resolved_video_path),
         "-filter_complex",
         filter_str,
         "-map",
@@ -744,10 +744,11 @@ def render_video_part(
         "-b:a",
         "192k",
         *final_movflags(),
-        str(output_path),
+        str(output_path.resolve()),
     ]
 
-    r = subprocess.run(cmd, capture_output=True, text=True, cwd=str(output_path.parent))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, cwd=str(output_path.parent.resolve()))
     if r.returncode != 0 or not output_path.exists() or output_path.stat().st_size == 0:
         raise RuntimeError(f"FFmpeg render failed for {output_path.name}: {r.stderr.strip()[-300:]}")
 

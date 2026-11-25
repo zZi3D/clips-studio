@@ -15,6 +15,11 @@ fixed were often broken in a way that only showed up on somebody else's machine.
 
 ### Fixed & Completed
 
+- **FFmpeg Concat Stream Interleaving Fix for Multi-Chapter Parts.**
+  - **Probleem:** Bij `video_to_clips` delen die bestaan uit meerdere samengevoegde hoofdstukken (bijv. Part 01 met Intro + Mistake 1, Part 02 met Mistake 2 t/m 4) faalde het renderen met `Error : Invalid argument (Media type mismatch between audio output and video input pad)`. Alleen delen met 1 enkel hoofdstuk (zoals Part 04 / Mistake 8) kwamen erdoor.
+  - **Oorzaak:** Het FFmpeg `concat` filter verwacht stream inputs per segment om en om (`[v0][a0][v1][a1]...`), maar de input string werd gegroepeerd gegenereerd als `[v0][v1][a0][a1]`, waardoor FFmpeg een audiostroom aan een video input probeerde te koppelen.
+  - **Oplossing:** `render_video_part()` in `video/video_to_clips.py` genereert nu correct afwisselende input pads `[v{i}][a{i}]` en lost bronpaden altijd absoluut op. Hierdoor renderen alle multi-segment parts vlekkeloos uit naar mp4.
+
 - **Universal YouTube Markdown Timestamp Parsing & Strict <=180s Shorts Bin-Packing.**
   - **Universal YouTube/Markdown Chapter Parser:** `parse_custom_chapters()` now seamlessly handles any YouTube copy-paste format: bracketed timestamps `[0:29]`, YouTube markdown URLs `[0:29](https://youtube.com/...)`, and continuous multi-chapter blocks on single or multiple lines. Automatically strips extraneous markdown/URLs and isolates clean titles.
   - **Strict <=180s YouTube Shorts Bin-Packing:** When custom chapters are provided, `partition_active_stream()` groups entire chapters as indivisible atomic units without ever cutting in the middle of a topic or tip. Enforces a strict hard limit of `<= 180.0s` (3 minutes) to guarantee 100% eligibility for YouTube Shorts. Large topics (e.g. 2 min+ like *Mistake #8*) receive their own dedicated Short, and subsequent chapters only bundle if the combined length stays safely within 180 seconds.
